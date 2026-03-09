@@ -30,6 +30,7 @@
 
 <body>
 	<script type="module" src="./odin.js"></script>
+	<script type="module" src="./wgpu.js"></script>
 	<script type="module" src="./odin-resize.js"></script>
 	<canvas id="canvas-1" width="640" height="480"></canvas>
 	<script type="text/javascript">
@@ -39,12 +40,20 @@
 		document.body.style.overflow = 'hidden';
 
 		window.addEventListener('load', function () {
-			wasmMemoryInterface = new odin.WasmMemoryInterface();
-			wasmMemoryInterface.setIntSize(4);
+			// -extra-linker-flags:"--export-table --import-memory --initial-memory=$INITIAL_MEMORY_BYTES --max-memory=$MAX_MEMORY_BYTES" -->		
+			const mem = new WebAssembly.Memory({ initial: 2000, maximum: 65536, shared: false });
+			const memInterface = new odin.WasmMemoryInterface();
+			memInterface.setMemory(mem);
+			// memInterface.setIntSize(4); // is this no longer needed?
+
+			const wgpuInterface = new odin.WebGPUInterface(memInterface);
+
 			let custom_imports = {
-				...window.odinResize.setupImports(wasmMemoryInterface),
+				wgpu: wgpuInterface.getInterface(),
+				...window.odinResize.setupImports(memInterface, null, mem),
 			};
-			odin.runWasm("./_main.wasm", undefined, custom_imports, wasmMemoryInterface);
+			// odin.runWasm("./_main.wasm", undefined, custom_imports, wasmMemoryInterface);
+			odin.runWasm("./_main.wasm", null, custom_imports, memInterface, /*intSize=8*/ );
 		});
 	</script>
 

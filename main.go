@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -16,16 +17,15 @@ import (
 func main() {
 	noWatchPtr := flag.Bool("no-watch", false, "turn off file watcher")
 	noBuildPtr := flag.Bool("no-build", false, "turn off initial odin build")
-	optimizePtr := flag.Bool("optimize", false, "build with optimizations")
 	flag.Parse()
-	odin_exe := flag.Arg(0)
+	bat := flag.Arg(0)
 
 	if !*noBuildPtr {
-		build(odin_exe, *optimizePtr)
+		build(bat)
 	}
 	if !*noWatchPtr {
-		go watch("../", odin_exe, *optimizePtr)
-		go watch("../../shared/", odin_exe, *optimizePtr)
+		go watch("../", bat)
+		go watch("../../shared/", bat)
 	}
 
 	fs := http.FileServer(http.Dir("./"))
@@ -38,25 +38,17 @@ func main() {
 	}
 }
 
-func build(odin_exe string, optimize bool) {
-	args := []string{"build", "../", "-out:_main.wasm", "-target:js_wasm32"}
-	if optimize {
-		args = append(args, "-o:speed")
-		// "-o:speed", "-disable-assert", "-no-bounds-check",
-		// "-o:aggressive", "-disable-assert", "-no-bounds-check",
-	} else {
-		args = append(args, "-o:minimal")
+func build(bat string) {
+	cmd := exec.Command("cmd.exe")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CmdLine: fmt.Sprintf("/c %s", bat),
 	}
-	log.Println(odin_exe, args)
-	cmd := exec.Command(
-		odin_exe, args...,
-	)
 	log.Println("Running command and waiting for it to finish...")
 	var outb, errb bytes.Buffer
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
 	err := cmd.Run()
-	fmt.Println("out:", outb.String(), "err:", errb.String())
+	fmt.Println("out:", outb.String(), "\nerr:", errb.String())
 	if err != nil {
 		log.Printf("Finished cmd with err: %v\n", err)
 	} else {
@@ -64,7 +56,7 @@ func build(odin_exe string, optimize bool) {
 	}
 }
 
-func watch(src string, odin_exe string, optimize bool) error {
+func watch(src string, bat string) error {
 	log.Printf("Starting watch %v\n", src)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -93,7 +85,7 @@ func watch(src string, odin_exe string, optimize bool) error {
 			default:
 				fmt.Print(".")
 				if rebuild && time.Since(build_time)*time.Millisecond > 200 {
-					build(odin_exe, optimize)
+					build(bat)
 					rebuild = false
 					build_time = time.Now()
 				}

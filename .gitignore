@@ -1,3 +1,17 @@
+**/_main.wasm
+**/tmp.bat
+**/odin.js
+**/wgpu.js
+*.exe
+dist/**/*.*
+*/public/odin-resize.js
+*/public/odin-gamepad.js
+*/public/odin-cursor.js
+__pycache__/
+_bk/
+t/
+t.py
+
 # Prerequisites
 *.d
 
