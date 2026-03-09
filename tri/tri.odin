@@ -1,10 +1,7 @@
-package rectangle
+package tri
 
-// import "../shared/resize"
-import "../shared/text"
 import "base:runtime"
 import "core:fmt"
-import "core:mem"
 import "core:sys/wasm/js"
 import "vendor:wgpu"
 
@@ -12,22 +9,8 @@ import "vendor:wgpu"
 main :: proc() {}
 
 
-TempArena :: struct {
-	allocator: mem.Allocator,
-	buffer:    []byte,
-	arena:     mem.Arena,
-}
-temp_arena_init :: proc(ta: ^TempArena) {
-	ta.buffer = make_slice([]byte, mem.Megabyte)
-	ta.arena = {
-		data = ta.buffer[:],
-	}
-	ta.allocator = mem.arena_allocator(&ta.arena)
-}
-
 State :: struct {
 	started:         bool,
-	rotation:        f32,
 	ctx:             runtime.Context,
 	os:              OS,
 	instance:        wgpu.Instance,
@@ -39,51 +22,12 @@ State :: struct {
 	module:          wgpu.ShaderModule,
 	pipeline_layout: wgpu.PipelineLayout,
 	pipeline:        wgpu.RenderPipeline,
-	// w:               i32,
-	// h:               i32,
-	// canvas_w:        i32,
-	// canvas_h:        i32,
-	// dpr:             f32,
-	// window_w:        i32,
-	// window_h:        i32,
-	debug_text:      text.Batch,
-	temp_arena:      TempArena,
 }
 g_state: State = {}
 
-Data :: struct {
-	vert:  [12][2]f32,
-	index: [3][2][3]u32,
-	num:   int,
-}
-data_create :: proc() -> Data {
-	data: Data
-	data.vert = {
-		{0, 0},
-		{30, 0},
-		{0, 150},
-		{30, 150},
-		{30, 0},
-		{100, 0},
-		{30, 30},
-		{100, 30},
-		{30, 60},
-		{70, 60},
-		{30, 90},
-		{70, 90},
-	}
-	data.index = {
-		{{0, 1, 2}, {2, 1, 3}}, // lf column
-		{{4, 5, 6}, {6, 5, 7}}, // tp run
-		{{8, 9, 10}, {10, 9, 11}}, // middle run
-	}
-	data.num = 3 * 2 * 3
-	return data
-}
 TRI_SHADER :: #load("tri.wgsl")
 
 start :: proc(state: ^State) -> (ok: bool) {
-	fmt.println("start")
 	state.started = true
 	os_init()
 
@@ -92,7 +36,6 @@ start :: proc(state: ^State) -> (ok: bool) {
 		panic("WebGPU is not supported")
 	}
 	state.surface = os_get_surface(state.instance)
-	fmt.println("back in start")
 
 	wgpu.InstanceRequestAdapter(
 		state.instance,
@@ -109,7 +52,6 @@ start :: proc(state: ^State) -> (ok: bool) {
 	) {
 		state := &g_state
 		context = state.ctx
-		fmt.println("on_adapter")
 		if status != .Success || adapter == nil {
 			fmt.panicf("request device failure [%v] %s", status, message)
 		}
@@ -128,7 +70,6 @@ start :: proc(state: ^State) -> (ok: bool) {
 		if status != .Success || device == nil {
 			fmt.panicf("request device failure [%v] %s", status, message)
 		}
-		fmt.println("on_device")
 		state.device = device
 		width, height := os_get_framebuffer_size()
 		state.config = wgpu.SurfaceConfiguration {
@@ -182,12 +123,8 @@ start :: proc(state: ^State) -> (ok: bool) {
 				multisample = {count = 1, mask = 0xFFFFFFFF},
 			},
 		)
-		fmt.println("before os_run", state.os.initialized)
 		os_run(&g_state.os)
-		fmt.println("after os_run", state.os.initialized)
 	}
-
-	fmt.println("done with start")
 
 	return true
 }
@@ -196,7 +133,7 @@ resize :: proc "c" () {
 	context = g_state.ctx
 	g_state.config.width, g_state.config.height = os_get_framebuffer_size()
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
-	fmt.println("resize", g_state.config.width, g_state.config.height)
+	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
 
 
@@ -256,65 +193,9 @@ draw_scene :: proc(state: ^State) {
 
 	wgpu.QueueSubmit(state.queue, {command_buffer})
 	wgpu.SurfacePresent(state.surface)
-
-	// gl.Viewport(0, 0, state.w, state.h)
-
-	// fov: f32 = (45.0 * math.PI) / 180.0
-	// aspect: f32 = f32(state.w) / f32(state.h)
-	// z_near: f32 = 0.1
-	// z_far: f32 = 100.0
-	// projection_mat := glm.mat4Perspective(fov, aspect, z_near, z_far)
-	// model_view_mat := glm.mat4Translate({-0, 0, -6}) * glm.mat4Rotate({0, 0, 1}, state.rotation)
-
-	// {
-	// 	text_projection := glm.mat4Ortho3d(0, f32(state.w), f32(state.h), 0, -1, 1)
-	// 	spacing: int = 4
-	// 	scale: int = math.max(1, cast(int)math.round(state.dpr))
-	// 	text.batch_start(
-	// 		&state.debug_text,
-	// 		.A30,
-	// 		{1, 1, 1},
-	// 		text_projection,
-	// 		64,
-	// 		spacing = spacing,
-	// 		scale = scale,
-	// 	)
-	// 	h: int = text.debug_get_height()
-	// 	line_gap: int = h / 2
-	// 	total_h: int = h * 3 + line_gap * 2
-
-	// 	str: string = fmt.tprintf("canvas: %d x %d", state.canvas_w, state.canvas_h)
-	// 	w: int = text.debug_get_width(str)
-	// 	x: int = int(state.w) / 2 - w / 2
-	// 	y: int = int(state.h) / 2 - total_h / 2
-	// 	text.debug({x, y}, str)
-
-	// 	str = fmt.tprintf("dpr: %.2f", state.dpr)
-	// 	w = text.debug_get_width(str)
-	// 	x = int(state.w) / 2 - w / 2
-	// 	y += h + line_gap
-	// 	text.debug({x, y}, str)
-
-	// 	str = fmt.tprintf("window: %d x %d", state.window_w, state.window_h)
-	// 	w = text.debug_get_width(str)
-	// 	x = int(state.w) / 2 - w / 2
-	// 	y += h + line_gap
-	// 	text.debug({x, y}, str)
-	// }
 }
 
 update :: proc(state: ^State, dt: f32) {
-	// resize_state: resize.ResizeState
-	// resize.resize(&resize_state)
-	// state.canvas_w = resize_state.canvas_res.x
-	// state.canvas_h = resize_state.canvas_res.y
-	// state.window_w = resize_state.window_size.x
-	// state.window_h = resize_state.window_size.y
-	// size := resize.get()
-	// state.w = size.w
-	// state.h = size.h
-	// state.dpr = size.dpr
-	state.rotation += dt
 }
 
 @(export)
@@ -323,17 +204,10 @@ step :: proc(dt: f32) -> (keep_going: bool) {
 	if !g_state.started {
 		g_state.ctx = runtime.default_context()
 		context = g_state.ctx
-		temp_arena_init(&g_state.temp_arena)
-		context.temp_allocator = g_state.temp_arena.allocator
-		fmt.println("first step")
 		g_state.started = true
-		if ok = start(&g_state); !ok {
-			fmt.println("start !ok")
-			return false
-		}
+		if ok = start(&g_state); !ok {return false}
 	}
 	context = g_state.ctx
-	context.temp_allocator = g_state.temp_arena.allocator
 	defer free_all(context.temp_allocator)
 
 	update(&g_state, dt)
@@ -358,7 +232,6 @@ os_init :: proc() {
 
 os_run :: proc(os: ^OS) {
 	os.initialized = true
-	fmt.println("os_run")
 }
 
 os_get_framebuffer_size :: proc() -> (width, height: u32) {
@@ -368,7 +241,6 @@ os_get_framebuffer_size :: proc() -> (width, height: u32) {
 }
 
 os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
-	fmt.println("os_get_surface")
 	return wgpu.InstanceCreateSurface(
 		instance,
 		&wgpu.SurfaceDescriptor {

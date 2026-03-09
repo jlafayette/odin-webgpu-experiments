@@ -83,7 +83,6 @@ def main(args: Args) -> Path:
 		shutil.copy(src, js_dst)
 
 	for src_folder, filename in [
-		("resize", "odin-resize.js"),
 		# ("gamepad", "odin-gamepad.js"),
 		# ("cursor", "odin-cursor.js"),
 	]:
