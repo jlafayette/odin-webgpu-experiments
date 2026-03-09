@@ -4,4 +4,8 @@
     "enable_hover": true,
     "enable_snippets": true,
     "enable_format": true
+    "profiles": [
+        { "name": "wasm", "os": "js", "arch": "wasm32" }
+    ],
+    "profile": "wasm"
 }

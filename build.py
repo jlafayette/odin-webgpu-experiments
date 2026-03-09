@@ -17,11 +17,13 @@ class Args(NamedTuple):
 
 root_dir = Path(__file__).absolute().parent
 
+
 INITIAL_MEMORY_PAGES = 2000
 MAX_MEMORY_PAGES = 65536
 PAGE_SIZE = 65536
 INITIAL_MEMORY_BYTES = INITIAL_MEMORY_PAGES * PAGE_SIZE
 MAX_MEMORY_BYTES = MAX_MEMORY_PAGES * PAGE_SIZE
+
 
 def main(args: Args) -> Path:
 	print(args)
