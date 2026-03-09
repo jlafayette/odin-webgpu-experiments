@@ -51,6 +51,37 @@ State :: struct {
 }
 g_state: State = {}
 
+Data :: struct {
+	vert:  [12][2]f32,
+	index: [3][2][3]u32,
+	num:   int,
+}
+data_create :: proc() -> Data {
+	data: Data
+	data.vert = {
+		{0, 0},
+		{30, 0},
+		{0, 150},
+		{30, 150},
+		{30, 0},
+		{100, 0},
+		{30, 30},
+		{100, 30},
+		{30, 60},
+		{70, 60},
+		{30, 90},
+		{70, 90},
+	}
+	data.index = {
+		{{0, 1, 2}, {2, 1, 3}}, // lf column
+		{{4, 5, 6}, {6, 5, 7}}, // tp run
+		{{8, 9, 10}, {10, 9, 11}}, // middle run
+	}
+	data.num = 3 * 2 * 3
+	return data
+}
+TRI_SHADER :: #load("tri.wgsl")
+
 start :: proc(state: ^State) -> (ok: bool) {
 	fmt.println("start")
 	state.started = true
@@ -111,21 +142,22 @@ start :: proc(state: ^State) -> (ok: bool) {
 		}
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 		state.queue = wgpu.DeviceGetQueue(state.device)
-		shader :: `
-	@vertex
-	fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-		let pos = array(
-			vec2f( 0.0,  0.5), // tp center
-			vec2f(-0.5, -0.5), // bt left
-			vec2f( 0.5, -0.5), // bt right
-		);
-		return vec4f(pos[in_vertex_index], 0.0, 1.0);
-	}
+		shader := string(TRI_SHADER)
+		// 	shader :: `
+		// @vertex
+		// fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
+		// 	let pos = array(
+		// 		vec2f( 0.0,  0.5), // tp center
+		// 		vec2f(-0.5, -0.5), // bt left
+		// 		vec2f( 0.5, -0.5), // bt right
+		// 	);
+		// 	return vec4f(pos[in_vertex_index], 0.0, 1.0);
+		// }
 
-	@fragment
-	fn fs_main() -> @location(0) vec4<f32> {
-		return vec4<f32>(0.9, 0.3, 0.3, 1.0);
-	}`
+		// @fragment
+		// fn fs_main() -> @location(0) vec4<f32> {
+		// 	return vec4<f32>(0.9, 0.3, 0.3, 1.0);
+		// }`
 		state.module = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
@@ -134,12 +166,12 @@ start :: proc(state: ^State) -> (ok: bool) {
 		state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&{
-				label = "red tri pipeline",
+				label = "tri pipeline",
 				layout = state.pipeline_layout,
-				vertex = {module = state.module, entryPoint = "vs_main"},
+				vertex = {module = state.module, entryPoint = "vs"},
 				fragment = &{
 					module = state.module,
-					entryPoint = "fs_main",
+					entryPoint = "fs",
 					targetCount = 1,
 					targets = &wgpu.ColorTargetState {
 						format = .BGRA8Unorm,
