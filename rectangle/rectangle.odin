@@ -114,14 +114,17 @@ start :: proc(state: ^State) -> (ok: bool) {
 		shader :: `
 	@vertex
 	fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-		let x = f32(i32(in_vertex_index) - 1);
-		let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
-		return vec4<f32>(x, y, 0.0, 1.0);
+		let pos = array(
+			vec2f( 0.0,  0.5), // tp center
+			vec2f(-0.5, -0.5), // bt left
+			vec2f( 0.5, -0.5), // bt right
+		);
+		return vec4f(pos[in_vertex_index], 0.0, 1.0);
 	}
 
 	@fragment
 	fn fs_main() -> @location(0) vec4<f32> {
-		return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+		return vec4<f32>(0.9, 0.3, 0.3, 1.0);
 	}`
 		state.module = wgpu.DeviceCreateShaderModule(
 			state.device,
@@ -131,6 +134,7 @@ start :: proc(state: ^State) -> (ok: bool) {
 		state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			state.device,
 			&{
+				label = "red tri pipeline",
 				layout = state.pipeline_layout,
 				vertex = {module = state.module, entryPoint = "vs_main"},
 				fragment = &{
@@ -185,19 +189,20 @@ draw_scene :: proc(state: ^State) {
 	frame := wgpu.TextureCreateView(surface_texture.texture, nil)
 	defer wgpu.TextureViewRelease(frame)
 
-	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, nil)
+	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, &{label = "encoder"})
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&{
+			label = "basic canvas renderPass",
 			colorAttachmentCount = 1,
 			colorAttachments = &wgpu.RenderPassColorAttachment {
 				view = frame,
 				loadOp = .Clear,
 				storeOp = .Store,
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
-				clearValue = {0, 1, 0, 1},
+				clearValue = {0.1, 0.2, 0.2, 1},
 			},
 		},
 	)
