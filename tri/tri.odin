@@ -84,21 +84,6 @@ start :: proc(state: ^State) -> (ok: bool) {
 		wgpu.SurfaceConfigure(state.surface, &state.config)
 		state.queue = wgpu.DeviceGetQueue(state.device)
 		shader := string(TRI_SHADER)
-		// 	shader :: `
-		// @vertex
-		// fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-		// 	let pos = array(
-		// 		vec2f( 0.0,  0.5), // tp center
-		// 		vec2f(-0.5, -0.5), // bt left
-		// 		vec2f( 0.5, -0.5), // bt right
-		// 	);
-		// 	return vec4f(pos[in_vertex_index], 0.0, 1.0);
-		// }
-
-		// @fragment
-		// fn fs_main() -> @location(0) vec4<f32> {
-		// 	return vec4<f32>(0.9, 0.3, 0.3, 1.0);
-		// }`
 		state.module = wgpu.DeviceCreateShaderModule(
 			state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
@@ -138,9 +123,6 @@ resize :: proc "c" () {
 
 
 draw_scene :: proc(state: ^State) {
-	if !state.os.initialized {
-		return
-	}
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
 	switch surface_texture.status {
 	case .SuccessOptimal, .SuccessSuboptimal:
@@ -171,7 +153,7 @@ draw_scene :: proc(state: ^State) {
 				loadOp = .Clear,
 				storeOp = .Store,
 				depthSlice = wgpu.DEPTH_SLICE_UNDEFINED,
-				clearValue = {0.1, 0.2, 0.2, 1},
+				clearValue = {0.2, 0.2, 0.2, 1},
 			},
 		},
 	)
@@ -211,8 +193,9 @@ step :: proc(dt: f32) -> (keep_going: bool) {
 	defer free_all(context.temp_allocator)
 
 	update(&g_state, dt)
-
-	draw_scene(&g_state)
+	if g_state.os.initialized {
+		draw_scene(&g_state)
+	}
 
 	return true
 }
