@@ -23,5 +23,9 @@ struct VertShaderOutput {
 }
 
 @fragment fn fs(fsInput: VertShaderOutput) -> @location(0) vec4f {
-    return fsInput.color;
+    let c1 = vec4f(0, 0, 0, 1);
+    let c2 = fsInput.color;
+    let grid = vec2u(fsInput.position.xy) / 16;
+    let checker = (grid.x + grid.y) % 2 == 1;
+    return select(c1, c2, checker);
 }
