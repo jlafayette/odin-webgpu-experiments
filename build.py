@@ -20,7 +20,6 @@ root_dir = Path(__file__).absolute().parent
 INITIAL_MEMORY_PAGES = 2000
 MAX_MEMORY_PAGES = 65536
 PAGE_SIZE = 65536
-
 INITIAL_MEMORY_BYTES = INITIAL_MEMORY_PAGES * PAGE_SIZE
 MAX_MEMORY_BYTES = MAX_MEMORY_PAGES * PAGE_SIZE
 
@@ -67,22 +66,9 @@ def main(args: Args) -> Path:
 		print("building wasm...")
 		clean(wasm_dst)
 		print(build_args)
-		# print("---")
-		# subprocess.run(
-	 #        [
-		# 		"python", "t.py", "build", project_dst, f"-out:{wasm_dst.as_posix()}",
-	 #        ] + build_args, check=True)
-		# print("---")
 		bat = Path("tmp.bat")
 		generate_bat_file(bat, ["build", str(project_dst), f"-out:{wasm_dst.as_posix()}"] + build_args)
 		subprocess.run(bat)
-		# print("---")
-		# subprocess.run(
-	 #        [
-	 #        	"cmd.exe", "/c",
-		# 		"odin", "build", project_dst, f"-out:{wasm_dst}",
-	 #        ] + build_args, check=True)
-		# print("---")
 
 	for odin_src_subpath, filename in [
 		("core/sys/wasm/js", "odin.js"),
@@ -143,13 +129,6 @@ def clean(p: Path):
 		p.unlink()
 	elif p.is_dir():
 		shutil.rmtree(p)
-
-
-def copy_odin_js(dst: Path):
-	# <!-- Copy `vendor:wasm/js/runtime.js` into your web server -->
-	r = subprocess.check_output(["odin", "root"])
-	src = Path(r.decode()) / "core/sys/wasm/js/odin.js"
-	shutil.copy(src, dst)
 
 
 def args():
