@@ -1,10 +1,8 @@
-package tri
+package game
 
 import "base:runtime"
 import "core:fmt"
-import "core:sys/wasm/js"
 import "vendor:wgpu"
-
 
 State :: struct {
 	ctx:             runtime.Context,
@@ -116,7 +114,8 @@ resize :: proc "c" () {
 	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
 
-draw_scene :: proc(state: ^State) {
+draw_scene :: proc() {
+	state := g_state
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
 	switch surface_texture.status {
 	case .SuccessOptimal, .SuccessSuboptimal:
@@ -169,50 +168,5 @@ draw_scene :: proc(state: ^State) {
 
 	wgpu.QueueSubmit(state.queue, {command_buffer})
 	wgpu.SurfacePresent(state.surface)
-}
-
-
-// --- os target code (currently only supports js)
-
-
-@(export)
-step :: proc(dt: f32) -> (keep_going: bool) {
-	defer free_all(context.temp_allocator)
-
-	// update(&g_state, dt)
-
-	if g_state.device_ready {
-		draw_scene(&g_state)
-	}
-
-	return true
-}
-
-os_init :: proc() {
-	ok := js.add_window_event_listener(.Resize, nil, os_size_callback)
-	assert(ok)
-}
-
-os_get_framebuffer_size :: proc() -> (width, height: u32) {
-	rect := js.get_bounding_client_rect("canvas-1")
-	dpi := js.device_pixel_ratio()
-	return u32(f64(rect.width) * dpi), u32(f64(rect.height) * dpi)
-}
-
-os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
-	return wgpu.InstanceCreateSurface(
-		instance,
-		&wgpu.SurfaceDescriptor {
-			nextInChain = &wgpu.SurfaceSourceCanvasHTMLSelector {
-				sType = .SurfaceSourceCanvasHTMLSelector,
-				selector = "#canvas-1",
-			},
-		},
-	)
-}
-
-@(private = "file")
-os_size_callback :: proc(e: js.Event) {
-	resize()
 }
 
