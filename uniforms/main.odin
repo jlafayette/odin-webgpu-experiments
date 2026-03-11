@@ -5,22 +5,32 @@ import "core:fmt"
 import "vendor:wgpu"
 
 State :: struct {
-	ctx:             runtime.Context,
-	device_ready:    bool,
-	instance:        wgpu.Instance,
-	surface:         wgpu.Surface,
-	adapter:         wgpu.Adapter,
-	device:          wgpu.Device,
-	config:          wgpu.SurfaceConfiguration,
-	queue:           wgpu.Queue,
-	module:          wgpu.ShaderModule,
-	pipeline_layout: wgpu.PipelineLayout,
-	pipeline:        wgpu.RenderPipeline,
+	ctx:               runtime.Context,
+	device_ready:      bool,
+	instance:          wgpu.Instance,
+	surface:           wgpu.Surface,
+	adapter:           wgpu.Adapter,
+	device:            wgpu.Device,
+	config:            wgpu.SurfaceConfiguration,
+	queue:             wgpu.Queue,
+	module:            wgpu.ShaderModule,
+	pipeline_layout:   wgpu.PipelineLayout,
+	pipeline:          wgpu.RenderPipeline,
+	uniform_buffer:    wgpu.Buffer,
+	bind_group:        wgpu.BindGroup,
+	bind_group_layout: wgpu.BindGroupLayout,
 }
 g_state: State = {}
 
 
-TRI_SHADER :: #load("tri.wgsl")
+SHADER :: #load("shader.wgsl")
+
+
+Uniforms :: struct {
+	color:  [4]f32,
+	scale:  [2]f32,
+	offset: [2]f32,
+}
 
 
 main :: proc() {
@@ -78,16 +88,35 @@ main :: proc() {
 		}
 		wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 		g_state.queue = wgpu.DeviceGetQueue(g_state.device)
-		shader := string(TRI_SHADER)
+		shader := string(SHADER)
 		g_state.module = wgpu.DeviceCreateShaderModule(
 			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
-		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(g_state.device, &{})
+		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
+			g_state.device,
+			&{
+				label = "uniforms bind group layout",
+				entryCount = 1,
+				entries = raw_data(
+					[]wgpu.BindGroupLayoutEntry {
+						{
+							binding = 0,
+							visibility = {.Vertex, .Fragment},
+							buffer = {type = .Uniform, minBindingSize = size_of(Uniforms)},
+						},
+					},
+				),
+			},
+		)
+		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
+			g_state.device,
+			&{bindGroupLayoutCount = 1, bindGroupLayouts = &g_state.bind_group_layout},
+		)
 		g_state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			g_state.device,
 			&{
-				label = "tri pipeline",
+				label = "uniforms pipeline",
 				layout = g_state.pipeline_layout,
 				vertex = {module = g_state.module, entryPoint = "vs"},
 				fragment = &{
@@ -103,6 +132,23 @@ main :: proc() {
 				multisample = {count = 1, mask = 0xFFFFFFFF},
 			},
 		)
+		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{label = "uniforms buffer", size = size_of(Uniforms), usage = {.Uniform, .CopyDst}},
+		)
+		g_state.bind_group = wgpu.DeviceCreateBindGroup(
+			g_state.device,
+			&{
+				label = "uniforms bind group",
+				layout = g_state.bind_group_layout,
+				entryCount = 1,
+				entries = raw_data(
+					[]wgpu.BindGroupEntry {
+						{binding = 0, buffer = g_state.uniform_buffer, size = size_of(Uniforms)},
+					},
+				),
+			},
+		)
 		g_state.device_ready = true
 	}
 }
@@ -111,7 +157,6 @@ resize :: proc "c" () {
 	context = g_state.ctx
 	g_state.config.width, g_state.config.height = os_get_framebuffer_size()
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
-	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
 
 draw_scene :: proc() {
@@ -136,6 +181,20 @@ draw_scene :: proc() {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, &{label = "encoder"})
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
+
+	uniform_buffer_values: Uniforms = {
+		color  = {0, 1, 0, 1},
+		scale  = {1, 1},
+		offset = {-0.5, -0.25},
+	}
+	wgpu.QueueWriteBuffer(
+		g_state.queue,
+		g_state.uniform_buffer,
+		0,
+		&uniform_buffer_values,
+		size_of(Uniforms),
+	)
+
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&{
@@ -152,6 +211,7 @@ draw_scene :: proc() {
 	)
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
 	wgpu.RenderPassEncoderDraw(
 		render_pass_encoder,
 		vertexCount = 3,
