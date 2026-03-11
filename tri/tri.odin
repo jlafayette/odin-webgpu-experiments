@@ -6,13 +6,9 @@ import "core:sys/wasm/js"
 import "vendor:wgpu"
 
 
-main :: proc() {}
-
-
 State :: struct {
-	started:         bool,
 	ctx:             runtime.Context,
-	os:              OS,
+	device_ready:    bool,
 	instance:        wgpu.Instance,
 	surface:         wgpu.Surface,
 	adapter:         wgpu.Adapter,
@@ -25,21 +21,24 @@ State :: struct {
 }
 g_state: State = {}
 
+
 TRI_SHADER :: #load("tri.wgsl")
 
-start :: proc(state: ^State) -> (ok: bool) {
-	state.started = true
+
+main :: proc() {
+	g_state.ctx = context
+
 	os_init()
 
-	state.instance = wgpu.CreateInstance(nil)
-	if state.instance == nil {
+	g_state.instance = wgpu.CreateInstance(nil)
+	if g_state.instance == nil {
 		panic("WebGPU is not supported")
 	}
-	state.surface = os_get_surface(state.instance)
+	g_state.surface = os_get_surface(g_state.instance)
 
 	wgpu.InstanceRequestAdapter(
-		state.instance,
-		&{compatibleSurface = state.surface},
+		g_state.instance,
+		&{compatibleSurface = g_state.surface},
 		{callback = on_adapter},
 	)
 
@@ -50,12 +49,11 @@ start :: proc(state: ^State) -> (ok: bool) {
 		userdata1: rawptr,
 		userdata2: rawptr,
 	) {
-		state := &g_state
-		context = state.ctx
+		context = g_state.ctx
 		if status != .Success || adapter == nil {
 			fmt.panicf("request device failure [%v] %s", status, message)
 		}
-		state.adapter = adapter
+		g_state.adapter = adapter
 		wgpu.AdapterRequestDevice(adapter, nil, {callback = on_device})
 	}
 	on_device :: proc "c" (
@@ -65,15 +63,14 @@ start :: proc(state: ^State) -> (ok: bool) {
 		userdata1: rawptr,
 		userdata2: rawptr,
 	) {
-		state := &g_state
-		context = state.ctx
+		context = g_state.ctx
 		if status != .Success || device == nil {
 			fmt.panicf("request device failure [%v] %s", status, message)
 		}
-		state.device = device
+		g_state.device = device
 		width, height := os_get_framebuffer_size()
-		state.config = wgpu.SurfaceConfiguration {
-			device      = state.device,
+		g_state.config = wgpu.SurfaceConfiguration {
+			device      = g_state.device,
 			usage       = {.RenderAttachment},
 			format      = .BGRA8Unorm,
 			width       = width,
@@ -81,22 +78,22 @@ start :: proc(state: ^State) -> (ok: bool) {
 			presentMode = .Fifo,
 			alphaMode   = .Opaque,
 		}
-		wgpu.SurfaceConfigure(state.surface, &state.config)
-		state.queue = wgpu.DeviceGetQueue(state.device)
+		wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
+		g_state.queue = wgpu.DeviceGetQueue(g_state.device)
 		shader := string(TRI_SHADER)
-		state.module = wgpu.DeviceCreateShaderModule(
-			state.device,
+		g_state.module = wgpu.DeviceCreateShaderModule(
+			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
-		state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(state.device, &{})
-		state.pipeline = wgpu.DeviceCreateRenderPipeline(
-			state.device,
+		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(g_state.device, &{})
+		g_state.pipeline = wgpu.DeviceCreateRenderPipeline(
+			g_state.device,
 			&{
 				label = "tri pipeline",
-				layout = state.pipeline_layout,
-				vertex = {module = state.module, entryPoint = "vs"},
+				layout = g_state.pipeline_layout,
+				vertex = {module = g_state.module, entryPoint = "vs"},
 				fragment = &{
-					module = state.module,
+					module = g_state.module,
 					entryPoint = "fs",
 					targetCount = 1,
 					targets = &wgpu.ColorTargetState {
@@ -108,10 +105,8 @@ start :: proc(state: ^State) -> (ok: bool) {
 				multisample = {count = 1, mask = 0xFFFFFFFF},
 			},
 		)
-		os_run(&g_state.os)
+		g_state.device_ready = true
 	}
-
-	return true
 }
 
 resize :: proc "c" () {
@@ -120,7 +115,6 @@ resize :: proc "c" () {
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
-
 
 draw_scene :: proc(state: ^State) {
 	surface_texture := wgpu.SurfaceGetCurrentTexture(state.surface)
@@ -177,44 +171,26 @@ draw_scene :: proc(state: ^State) {
 	wgpu.SurfacePresent(state.surface)
 }
 
-update :: proc(state: ^State, dt: f32) {
-}
+
+// --- os target code (currently only supports js)
+
 
 @(export)
 step :: proc(dt: f32) -> (keep_going: bool) {
-	ok: bool
-	if !g_state.started {
-		g_state.ctx = runtime.default_context()
-		context = g_state.ctx
-		g_state.started = true
-		if ok = start(&g_state); !ok {return false}
-	}
-	context = g_state.ctx
 	defer free_all(context.temp_allocator)
 
-	update(&g_state, dt)
-	if g_state.os.initialized {
+	// update(&g_state, dt)
+
+	if g_state.device_ready {
 		draw_scene(&g_state)
 	}
 
 	return true
 }
 
-
-// ---
-
-
-OS :: struct {
-	initialized: bool,
-}
-
 os_init :: proc() {
-	ok := js.add_window_event_listener(.Resize, nil, size_callback)
+	ok := js.add_window_event_listener(.Resize, nil, os_size_callback)
 	assert(ok)
-}
-
-os_run :: proc(os: ^OS) {
-	os.initialized = true
 }
 
 os_get_framebuffer_size :: proc() -> (width, height: u32) {
@@ -236,7 +212,7 @@ os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 }
 
 @(private = "file")
-size_callback :: proc(e: js.Event) {
+os_size_callback :: proc(e: js.Event) {
 	resize()
 }
 
