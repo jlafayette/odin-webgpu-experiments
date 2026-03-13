@@ -162,7 +162,7 @@ main :: proc() {
 				rand.float32_range(-0.9, 0.9),
 				rand.float32_range(-0.9, 0.9),
 			}
-			obj.scale = rand.float32_range(0.2, 0.5)
+			obj.scale = rand.float32_range(0.05, 0.3)
 
 			obj.bind_group = wgpu.DeviceCreateBindGroup(
 				g_state.device,
