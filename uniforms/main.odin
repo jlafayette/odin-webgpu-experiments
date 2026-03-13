@@ -7,17 +7,22 @@ import "vendor:wgpu"
 
 SHADER :: #load("shader.wgsl")
 
-Uniforms :: struct {
-	color:  [4]f32,
-	scale:  [2]f32,
-	offset: [2]f32,
+StaticUniforms :: struct {
+	color:    [4]f32,
+	offset:   [2]f32,
+	_padding: [2]f32,
+}
+DynamicUniforms :: struct {
+	scale: [2]f32,
 }
 
 ObjectInfo :: struct {
-	scale:          f32,
-	uniform_buffer: wgpu.Buffer,
-	uniform_values: Uniforms,
-	bind_group:     wgpu.BindGroup,
+	scale:                  f32,
+	static_uniform_buffer:  wgpu.Buffer,
+	static_uniform_values:  StaticUniforms,
+	dynamic_uniform_buffer: wgpu.Buffer,
+	dynamic_uniform_values: DynamicUniforms,
+	bind_group:             wgpu.BindGroup,
 }
 
 NUM_OBJECTS :: 100
@@ -34,8 +39,6 @@ State :: struct {
 	module:            wgpu.ShaderModule,
 	pipeline_layout:   wgpu.PipelineLayout,
 	pipeline:          wgpu.RenderPipeline,
-	uniform_buffer:    wgpu.Buffer,
-	bind_group:        wgpu.BindGroup,
 	object_infos:      []ObjectInfo,
 	bind_group_layout: wgpu.BindGroupLayout,
 }
@@ -106,13 +109,18 @@ main :: proc() {
 			g_state.device,
 			&{
 				label = "uniforms bind group layout",
-				entryCount = 1,
+				entryCount = 2,
 				entries = raw_data(
 					[]wgpu.BindGroupLayoutEntry {
 						{
 							binding = 0,
 							visibility = {.Vertex, .Fragment},
-							buffer = {type = .Uniform, minBindingSize = size_of(Uniforms)},
+							buffer = {type = .Uniform, minBindingSize = size_of(StaticUniforms)},
+						},
+						{
+							binding = 1,
+							visibility = {.Vertex},
+							buffer = {type = .Uniform, minBindingSize = size_of(DynamicUniforms)},
 						},
 					},
 				),
@@ -144,21 +152,29 @@ main :: proc() {
 
 		g_state.object_infos = make_slice([]ObjectInfo, NUM_OBJECTS)
 		for &obj in g_state.object_infos {
-			obj.uniform_buffer = wgpu.DeviceCreateBuffer(
+			obj.static_uniform_buffer = wgpu.DeviceCreateBuffer(
 				g_state.device,
 				&{
-					label = "uniforms buffer",
-					size = size_of(Uniforms),
+					label = "static uniforms buffer",
+					size = size_of(StaticUniforms),
 					usage = {.Uniform, .CopyDst},
 				},
 			)
-			obj.uniform_values.color = {
+			obj.dynamic_uniform_buffer = wgpu.DeviceCreateBuffer(
+				g_state.device,
+				&{
+					label = "dynamic uniforms buffer",
+					size = size_of(DynamicUniforms),
+					usage = {.Uniform, .CopyDst},
+				},
+			)
+			obj.static_uniform_values.color = {
 				rand.float32_range(0, 1),
 				rand.float32_range(0, 1),
 				rand.float32_range(0, 1),
 				1,
 			}
-			obj.uniform_values.offset = {
+			obj.static_uniform_values.offset = {
 				rand.float32_range(-0.9, 0.9),
 				rand.float32_range(-0.9, 0.9),
 			}
@@ -169,13 +185,29 @@ main :: proc() {
 				&{
 					label = "uniforms bind group",
 					layout = g_state.bind_group_layout,
-					entryCount = 1,
+					entryCount = 2,
 					entries = raw_data(
 						[]wgpu.BindGroupEntry {
-							{binding = 0, buffer = obj.uniform_buffer, size = size_of(Uniforms)},
+							{
+								binding = 0,
+								buffer = obj.static_uniform_buffer,
+								size = size_of(StaticUniforms),
+							},
+							{
+								binding = 1,
+								buffer = obj.dynamic_uniform_buffer,
+								size = size_of(DynamicUniforms),
+							},
 						},
 					),
 				},
+			)
+			wgpu.QueueWriteBuffer(
+				g_state.queue,
+				obj.static_uniform_buffer,
+				0,
+				&obj.static_uniform_values,
+				size_of(StaticUniforms),
 			)
 		}
 		g_state.device_ready = true
@@ -210,7 +242,6 @@ draw_scene :: proc() {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, &{label = "encoder"})
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
-
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&{
@@ -229,13 +260,13 @@ draw_scene :: proc() {
 
 	aspect := f32(g_state.config.width) / f32(g_state.config.height)
 	for &obj in g_state.object_infos {
-		obj.uniform_values.scale = {obj.scale / aspect, obj.scale}
+		obj.dynamic_uniform_values.scale = {obj.scale / aspect, obj.scale}
 		wgpu.QueueWriteBuffer(
 			g_state.queue,
-			obj.uniform_buffer,
+			obj.dynamic_uniform_buffer,
 			0,
-			&obj.uniform_values,
-			size_of(Uniforms),
+			&obj.dynamic_uniform_values,
+			size_of(DynamicUniforms),
 		)
 		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, obj.bind_group)
 		wgpu.RenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0)

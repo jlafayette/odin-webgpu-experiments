@@ -1,10 +1,13 @@
-struct UStruct {
+struct UStatic {
     color: vec4f,
-    scale: vec2f,
     offset: vec2f,
 };
+struct UDyn {
+    scale: vec2f,
+}
 
-@group(0) @binding(0) var<uniform> uStruct: UStruct;
+@group(0) @binding(0) var<uniform> uStatic: UStatic;
+@group(0) @binding(1) var<uniform> uDyn: UDyn;
 
 @vertex fn vs(
     @builtin(vertex_index) vertexIndex : u32
@@ -14,9 +17,9 @@ struct UStruct {
 		vec2f(-0.5, -0.5), // bt left
 		vec2f( 0.5, -0.5), // bt right
     );
-    return vec4f(pos[vertexIndex] * uStruct.scale + uStruct.offset, 0.0, 1.0);
+    return vec4f(pos[vertexIndex] * uDyn.scale + uStatic.offset, 0.0, 1.0);
 }
 
 @fragment fn fs() -> @location(0) vec4f {
-    return uStruct.color;
+    return uStatic.color;
 }
