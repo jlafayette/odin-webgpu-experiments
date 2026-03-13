@@ -2,7 +2,25 @@ package game
 
 import "base:runtime"
 import "core:fmt"
+import "core:math/rand"
 import "vendor:wgpu"
+
+SHADER :: #load("shader.wgsl")
+
+Uniforms :: struct {
+	color:  [4]f32,
+	scale:  [2]f32,
+	offset: [2]f32,
+}
+
+ObjectInfo :: struct {
+	scale:          f32,
+	uniform_buffer: wgpu.Buffer,
+	uniform_values: Uniforms,
+	bind_group:     wgpu.BindGroup,
+}
+
+NUM_OBJECTS :: 100
 
 State :: struct {
 	ctx:               runtime.Context,
@@ -18,19 +36,10 @@ State :: struct {
 	pipeline:          wgpu.RenderPipeline,
 	uniform_buffer:    wgpu.Buffer,
 	bind_group:        wgpu.BindGroup,
+	object_infos:      []ObjectInfo,
 	bind_group_layout: wgpu.BindGroupLayout,
 }
 g_state: State = {}
-
-
-SHADER :: #load("shader.wgsl")
-
-
-Uniforms :: struct {
-	color:  [4]f32,
-	scale:  [2]f32,
-	offset: [2]f32,
-}
 
 
 main :: proc() {
@@ -132,23 +141,43 @@ main :: proc() {
 				multisample = {count = 1, mask = 0xFFFFFFFF},
 			},
 		)
-		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
-			g_state.device,
-			&{label = "uniforms buffer", size = size_of(Uniforms), usage = {.Uniform, .CopyDst}},
-		)
-		g_state.bind_group = wgpu.DeviceCreateBindGroup(
-			g_state.device,
-			&{
-				label = "uniforms bind group",
-				layout = g_state.bind_group_layout,
-				entryCount = 1,
-				entries = raw_data(
-					[]wgpu.BindGroupEntry {
-						{binding = 0, buffer = g_state.uniform_buffer, size = size_of(Uniforms)},
-					},
-				),
-			},
-		)
+
+		g_state.object_infos = make_slice([]ObjectInfo, NUM_OBJECTS)
+		for &obj in g_state.object_infos {
+			obj.uniform_buffer = wgpu.DeviceCreateBuffer(
+				g_state.device,
+				&{
+					label = "uniforms buffer",
+					size = size_of(Uniforms),
+					usage = {.Uniform, .CopyDst},
+				},
+			)
+			obj.uniform_values.color = {
+				rand.float32_range(0, 1),
+				rand.float32_range(0, 1),
+				rand.float32_range(0, 1),
+				1,
+			}
+			obj.uniform_values.offset = {
+				rand.float32_range(-0.9, 0.9),
+				rand.float32_range(-0.9, 0.9),
+			}
+			obj.scale = rand.float32_range(0.2, 0.5)
+
+			obj.bind_group = wgpu.DeviceCreateBindGroup(
+				g_state.device,
+				&{
+					label = "uniforms bind group",
+					layout = g_state.bind_group_layout,
+					entryCount = 1,
+					entries = raw_data(
+						[]wgpu.BindGroupEntry {
+							{binding = 0, buffer = obj.uniform_buffer, size = size_of(Uniforms)},
+						},
+					),
+				},
+			)
+		}
 		g_state.device_ready = true
 	}
 }
@@ -182,19 +211,6 @@ draw_scene :: proc() {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 
-	uniform_buffer_values: Uniforms = {
-		color  = {0, 1, 0, 1},
-		scale  = {1, 1},
-		offset = {-0.5, -0.25},
-	}
-	wgpu.QueueWriteBuffer(
-		g_state.queue,
-		g_state.uniform_buffer,
-		0,
-		&uniform_buffer_values,
-		size_of(Uniforms),
-	)
-
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
 		&{
@@ -209,16 +225,21 @@ draw_scene :: proc() {
 			},
 		},
 	)
-
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
-	wgpu.RenderPassEncoderDraw(
-		render_pass_encoder,
-		vertexCount = 3,
-		instanceCount = 1,
-		firstVertex = 0,
-		firstInstance = 0,
-	)
+
+	aspect := f32(g_state.config.width) / f32(g_state.config.height)
+	for &obj in g_state.object_infos {
+		obj.uniform_values.scale = {obj.scale / aspect, obj.scale}
+		wgpu.QueueWriteBuffer(
+			g_state.queue,
+			obj.uniform_buffer,
+			0,
+			&obj.uniform_values,
+			size_of(Uniforms),
+		)
+		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, obj.bind_group)
+		wgpu.RenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0)
+	}
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)
