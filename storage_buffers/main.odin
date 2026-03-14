@@ -7,40 +7,43 @@ import "vendor:wgpu"
 
 SHADER :: #load("shader.wgsl")
 
-StaticUniforms :: struct {
+StaticStorage :: struct {
 	color:    [4]f32,
 	offset:   [2]f32,
 	_padding: [2]f32,
 }
-DynamicUniforms :: struct {
+DynamicStorage :: struct {
 	scale: [2]f32,
 }
 
 ObjectInfo :: struct {
-	scale:                  f32,
-	static_uniform_buffer:  wgpu.Buffer,
-	static_uniform_values:  StaticUniforms,
-	dynamic_uniform_buffer: wgpu.Buffer,
-	dynamic_uniform_values: DynamicUniforms,
-	bind_group:             wgpu.BindGroup,
+	scale: f32,
 }
 
 NUM_OBJECTS :: 100
+STATIC_STORAGE_SIZE :: size_of(StaticStorage) * NUM_OBJECTS
+DYNAMIC_STORAGE_SIZE :: size_of(DynamicStorage) * NUM_OBJECTS
 
 State :: struct {
-	ctx:               runtime.Context,
-	device_ready:      bool,
-	instance:          wgpu.Instance,
-	surface:           wgpu.Surface,
-	adapter:           wgpu.Adapter,
-	device:            wgpu.Device,
-	config:            wgpu.SurfaceConfiguration,
-	queue:             wgpu.Queue,
-	module:            wgpu.ShaderModule,
-	pipeline_layout:   wgpu.PipelineLayout,
-	pipeline:          wgpu.RenderPipeline,
-	object_infos:      []ObjectInfo,
-	bind_group_layout: wgpu.BindGroupLayout,
+	ctx:                    runtime.Context,
+	device_ready:           bool,
+	instance:               wgpu.Instance,
+	surface:                wgpu.Surface,
+	adapter:                wgpu.Adapter,
+	device:                 wgpu.Device,
+	config:                 wgpu.SurfaceConfiguration,
+	queue:                  wgpu.Queue,
+	module:                 wgpu.ShaderModule,
+	pipeline_layout:        wgpu.PipelineLayout,
+	pipeline:               wgpu.RenderPipeline,
+	object_infos:           []ObjectInfo,
+	bind_group_layout:      wgpu.BindGroupLayout,
+	//
+	static_storage_buffer:  wgpu.Buffer,
+	dynamic_storage_buffer: wgpu.Buffer,
+	bind_group:             wgpu.BindGroup,
+	static_values:          []StaticStorage,
+	storage_values:         []DynamicStorage,
 }
 g_state: State = {}
 
@@ -108,24 +111,27 @@ main :: proc() {
 		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			g_state.device,
 			&{
-				label = "uniforms bind group layout",
+				label      = "uniforms bind group layout",
 				entryCount = 2,
-				entries = raw_data(
+				entries    = raw_data(
 					[]wgpu.BindGroupLayoutEntry {
 						{
 							binding = 0,
-							visibility = {.Vertex, .Fragment},
+							visibility = {.Vertex},
 							buffer = {
-								type = .ReadOnlyStorage,
-								minBindingSize = size_of(StaticUniforms),
+								type           = .ReadOnlyStorage,
+								minBindingSize = size_of(StaticStorage) * NUM_OBJECTS,
+								// minBindingSize = size_of(StaticStorage),
+								// minBindingSize = 0,
 							},
 						},
 						{
 							binding = 1,
-							visibility = {.Vertex, .Fragment},
+							visibility = {.Vertex},
 							buffer = {
-								type = .ReadOnlyStorage,
-								minBindingSize = size_of(DynamicUniforms),
+								type           = .ReadOnlyStorage,
+								minBindingSize = size_of(DynamicStorage) * NUM_OBJECTS,
+								// minBindingSize = size_of(DynamicStorage),
 							},
 						},
 					},
@@ -142,7 +148,7 @@ main :: proc() {
 		g_state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			g_state.device,
 			&{
-				label = "uniforms pipeline",
+				label = "storage pipeline",
 				layout = g_state.pipeline_layout,
 				vertex = {module = g_state.module, entryPoint = "vs"},
 				fragment = &{
@@ -159,66 +165,72 @@ main :: proc() {
 			},
 		)
 
+		g_state.static_storage_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{
+				label = "static storage buffer",
+				size = STATIC_STORAGE_SIZE,
+				usage = {.Storage, .CopyDst},
+			},
+		)
+		g_state.dynamic_storage_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{
+				label = "dynamic storage buffer",
+				size = DYNAMIC_STORAGE_SIZE,
+				usage = {.Storage, .CopyDst},
+			},
+		)
+
 		g_state.object_infos = make_slice([]ObjectInfo, NUM_OBJECTS)
-		for &obj in g_state.object_infos {
-			obj.static_uniform_buffer = wgpu.DeviceCreateBuffer(
-				g_state.device,
-				&{
-					label = "static uniforms buffer",
-					size = size_of(StaticUniforms),
-					usage = {.Storage, .CopyDst},
-				},
-			)
-			obj.dynamic_uniform_buffer = wgpu.DeviceCreateBuffer(
-				g_state.device,
-				&{
-					label = "dynamic uniforms buffer",
-					size = size_of(DynamicUniforms),
-					usage = {.Storage, .CopyDst},
-				},
-			)
-			obj.static_uniform_values.color = {
+
+		// Static Storage
+		g_state.static_values = make_slice([]StaticStorage, NUM_OBJECTS)
+		for &v, i in g_state.static_values {
+			v.color = {
 				rand.float32_range(0, 1),
 				rand.float32_range(0, 1),
 				rand.float32_range(0, 1),
 				1,
 			}
-			obj.static_uniform_values.offset = {
-				rand.float32_range(-0.9, 0.9),
-				rand.float32_range(-0.9, 0.9),
-			}
-			obj.scale = rand.float32_range(0.05, 0.3)
-
-			obj.bind_group = wgpu.DeviceCreateBindGroup(
-				g_state.device,
-				&{
-					label = "uniforms bind group",
-					layout = g_state.bind_group_layout,
-					entryCount = 2,
-					entries = raw_data(
-						[]wgpu.BindGroupEntry {
-							{
-								binding = 0,
-								buffer = obj.static_uniform_buffer,
-								size = size_of(StaticUniforms),
-							},
-							{
-								binding = 1,
-								buffer = obj.dynamic_uniform_buffer,
-								size = size_of(DynamicUniforms),
-							},
-						},
-					),
-				},
-			)
-			wgpu.QueueWriteBuffer(
-				g_state.queue,
-				obj.static_uniform_buffer,
-				0,
-				&obj.static_uniform_values,
-				size_of(StaticUniforms),
-			)
+			v.offset = {rand.float32_range(-0.9, 0.9), rand.float32_range(-0.9, 0.9)}
+			g_state.object_infos[i].scale = rand.float32_range(0.05, 0.3)
 		}
+		// g_state.static_values[0].color = {1, 1, 1, 1}
+		// g_state.static_values[0].offset = {0, 0}
+		wgpu.QueueWriteBuffer(
+			g_state.queue,
+			g_state.static_storage_buffer,
+			0,
+			&g_state.static_values,
+			STATIC_STORAGE_SIZE,
+		)
+
+		g_state.storage_values = make_slice([]DynamicStorage, NUM_OBJECTS)
+
+		g_state.bind_group = wgpu.DeviceCreateBindGroup(
+			g_state.device,
+			&{
+				label = "bind group for objects",
+				layout = g_state.bind_group_layout,
+				entryCount = 2,
+				entries = raw_data(
+					[]wgpu.BindGroupEntry {
+						{
+							binding = 0,
+							buffer = g_state.static_storage_buffer,
+							size = STATIC_STORAGE_SIZE,
+						},
+						{
+							binding = 1,
+							buffer = g_state.dynamic_storage_buffer,
+							size = DYNAMIC_STORAGE_SIZE,
+						},
+					},
+				),
+			},
+		)
+
 		g_state.device_ready = true
 	}
 }
@@ -268,19 +280,22 @@ draw_scene :: proc() {
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
 
 	aspect := f32(g_state.config.width) / f32(g_state.config.height)
-	for &obj in g_state.object_infos {
-		obj.dynamic_uniform_values.scale = {obj.scale / aspect, obj.scale}
-		wgpu.QueueWriteBuffer(
-			g_state.queue,
-			obj.dynamic_uniform_buffer,
-			0,
-			&obj.dynamic_uniform_values,
-			size_of(DynamicUniforms),
-		)
-		wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, obj.bind_group)
-		wgpu.RenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0)
+	for obj, i in g_state.object_infos {
+		g_state.storage_values[i].scale = {obj.scale / aspect, obj.scale}
 	}
+	// for _, i in g_state.storage_values {
+	// 	g_state.storage_values[i].scale = {1, 1}
+	// }
+	wgpu.QueueWriteBuffer(
+		g_state.queue,
+		g_state.dynamic_storage_buffer,
+		0,
+		&g_state.storage_values,
+		DYNAMIC_STORAGE_SIZE,
+	)
 
+	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
+	wgpu.RenderPassEncoderDraw(render_pass_encoder, 3, NUM_OBJECTS, 0, 0)
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)
 
