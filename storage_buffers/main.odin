@@ -34,10 +34,8 @@ State :: struct {
 	config:                 wgpu.SurfaceConfiguration,
 	queue:                  wgpu.Queue,
 	module:                 wgpu.ShaderModule,
-	pipeline_layout:        wgpu.PipelineLayout,
 	pipeline:               wgpu.RenderPipeline,
 	object_infos:           []ObjectInfo,
-	bind_group_layout:      wgpu.BindGroupLayout,
 	//
 	static_storage_buffer:  wgpu.Buffer,
 	dynamic_storage_buffer: wgpu.Buffer,
@@ -108,48 +106,10 @@ main :: proc() {
 			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
-		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
-			g_state.device,
-			&{
-				label      = "uniforms bind group layout",
-				entryCount = 2,
-				entries    = raw_data(
-					[]wgpu.BindGroupLayoutEntry {
-						{
-							binding = 0,
-							visibility = {.Vertex},
-							buffer = {
-								type           = .ReadOnlyStorage,
-								minBindingSize = size_of(StaticStorage) * NUM_OBJECTS,
-								// minBindingSize = size_of(StaticStorage),
-								// minBindingSize = 0,
-							},
-						},
-						{
-							binding = 1,
-							visibility = {.Vertex},
-							buffer = {
-								type           = .ReadOnlyStorage,
-								minBindingSize = size_of(DynamicStorage) * NUM_OBJECTS,
-								// minBindingSize = size_of(DynamicStorage),
-							},
-						},
-					},
-				),
-			},
-		)
-		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
-			g_state.device,
-			&{
-				bindGroupLayoutCount = 1, //
-				bindGroupLayouts     = &g_state.bind_group_layout,
-			},
-		)
 		g_state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			g_state.device,
 			&{
 				label = "storage pipeline",
-				layout = g_state.pipeline_layout,
 				vertex = {module = g_state.module, entryPoint = "vs"},
 				fragment = &{
 					module = g_state.module,
@@ -211,10 +171,11 @@ main :: proc() {
 		g_state.bind_group = wgpu.DeviceCreateBindGroup(
 			g_state.device,
 			&{
-				label = "bind group for objects",
-				layout = g_state.bind_group_layout,
+				label      = "bind group for objects",
+				// layout = g_state.bind_group_layout,
+				layout     = wgpu.RenderPipelineGetBindGroupLayout(g_state.pipeline, 0),
 				entryCount = 2,
-				entries = raw_data(
+				entries    = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
 							binding = 0,
@@ -230,7 +191,6 @@ main :: proc() {
 				),
 			},
 		)
-
 		g_state.device_ready = true
 	}
 }
