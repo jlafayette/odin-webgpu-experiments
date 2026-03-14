@@ -156,13 +156,11 @@ main :: proc() {
 			v.offset = {rand.float32_range(-0.9, 0.9), rand.float32_range(-0.9, 0.9)}
 			g_state.object_infos[i].scale = rand.float32_range(0.05, 0.3)
 		}
-		// g_state.static_values[0].color = {1, 1, 1, 1}
-		// g_state.static_values[0].offset = {0, 0}
 		wgpu.QueueWriteBuffer(
 			g_state.queue,
 			g_state.static_storage_buffer,
 			0,
-			&g_state.static_values,
+			raw_data(g_state.static_values),
 			STATIC_STORAGE_SIZE,
 		)
 
@@ -171,11 +169,10 @@ main :: proc() {
 		g_state.bind_group = wgpu.DeviceCreateBindGroup(
 			g_state.device,
 			&{
-				label      = "bind group for objects",
-				// layout = g_state.bind_group_layout,
-				layout     = wgpu.RenderPipelineGetBindGroupLayout(g_state.pipeline, 0),
+				label = "bind group for objects",
+				layout = wgpu.RenderPipelineGetBindGroupLayout(g_state.pipeline, 0),
 				entryCount = 2,
-				entries    = raw_data(
+				entries = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
 							binding = 0,
@@ -243,14 +240,11 @@ draw_scene :: proc() {
 	for obj, i in g_state.object_infos {
 		g_state.storage_values[i].scale = {obj.scale / aspect, obj.scale}
 	}
-	// for _, i in g_state.storage_values {
-	// 	g_state.storage_values[i].scale = {1, 1}
-	// }
 	wgpu.QueueWriteBuffer(
 		g_state.queue,
 		g_state.dynamic_storage_buffer,
 		0,
-		&g_state.storage_values,
+		raw_data(g_state.storage_values),
 		DYNAMIC_STORAGE_SIZE,
 	)
 
