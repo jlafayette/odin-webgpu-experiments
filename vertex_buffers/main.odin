@@ -136,8 +136,8 @@ main :: proc() {
 						[]wgpu.VertexBufferLayout {
 							{
 								stepMode       = .Vertex,
-								arrayStride    = size_of(Vert), // 2 f32, 4 bytes each
-								attributeCount = 1,
+								arrayStride    = size_of(Vert), // 5 f32, 4 bytes each
+								attributeCount = 2,
 								attributes     = raw_data(
 									[]wgpu.VertexAttribute {
 										{
@@ -145,6 +145,11 @@ main :: proc() {
 											offset = cast(u64)offset_of(Vert, position),
 											format = .Float32x2,
 										}, // position
+										{
+											shaderLocation = 4,
+											offset = cast(u64)offset_of(Vert, color),
+											format = .Float32x3,
+										}, // per vertex color
 									},
 								),
 							},
@@ -218,7 +223,7 @@ main :: proc() {
 		g_state.vertex_array = create_circle_vertices(
 			Circle {
 				radius = 0.5,
-				subdivisions = 6,
+				subdivisions = 24,
 				inner_radius = 0.25,
 				start_angle = 0,
 				end_angle = math.TAU,
@@ -277,12 +282,16 @@ Circle :: struct {
 }
 Vert :: struct {
 	position: [2]f32,
+	color:    [3]f32,
 }
 
 create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 	// 2 tris per subdivision, 3 verts per tri, 2 values (xy) each.
 	n_verts: int = c.subdivisions * 3 * 2
 	verts := make_dynamic_array_len_cap([dynamic]Vert, 0, n_verts)
+
+	inner_color: [3]f32 = {1, 1, 1}
+	outer_color: [3]f32 = {0.1, 0.1, 0.1}
 
 	// 2 tris per subdivision
 	//
@@ -304,12 +313,15 @@ create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 		{
 			v1: Vert = {
 				position = {c1 * c.radius, s1 * c.radius},
+				color    = outer_color,
 			}
 			v2: Vert = {
 				position = {c2 * c.radius, s2 * c.radius},
+				color    = outer_color,
 			}
 			v3: Vert = {
 				position = {c1 * c.inner_radius, s1 * c.inner_radius},
+				color    = inner_color,
 			}
 			append_elem(&verts, v1)
 			append_elem(&verts, v2)
@@ -318,12 +330,15 @@ create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 		{
 			v1: Vert = {
 				position = {c1 * c.inner_radius, s1 * c.inner_radius},
+				color    = inner_color,
 			}
 			v2: Vert = {
 				position = {c2 * c.radius, s2 * c.radius},
+				color    = outer_color,
 			}
 			v3: Vert = {
 				position = {c2 * c.inner_radius, s2 * c.inner_radius},
+				color    = inner_color,
 			}
 			append_elem(&verts, v1)
 			append_elem(&verts, v2)
