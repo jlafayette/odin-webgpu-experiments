@@ -49,6 +49,24 @@ State :: struct {
 }
 g_state: State = {}
 
+finish :: proc() {
+	wgpu.RenderPipelineRelease(g_state.pipeline)
+	wgpu.ShaderModuleRelease(g_state.module)
+	wgpu.QueueRelease(g_state.queue)
+	wgpu.DeviceRelease(g_state.device)
+	wgpu.AdapterRelease(g_state.adapter)
+	wgpu.SurfaceRelease(g_state.surface)
+	wgpu.InstanceRelease(g_state.instance)
+	wgpu.BindGroupRelease(g_state.bind_group)
+	wgpu.BufferRelease(g_state.static_storage_buffer)
+	wgpu.BufferRelease(g_state.dynamic_storage_buffer)
+	wgpu.BufferRelease(g_state.vertex_storage_buffer)
+
+	delete(g_state.object_infos)
+	delete(g_state.static_values)
+	delete(g_state.storage_values)
+	delete(g_state.vertex_array)
+}
 
 main :: proc() {
 	g_state.ctx = context
