@@ -2,6 +2,7 @@ package game
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:math/rand"
 import "vendor:wgpu"
 
@@ -42,6 +43,9 @@ State :: struct {
 	bind_group:             wgpu.BindGroup,
 	static_values:          []StaticStorage,
 	storage_values:         []DynamicStorage,
+	//
+	vertex_array:           [dynamic]Vert,
+	vertex_storage_buffer:  wgpu.Buffer,
 }
 g_state: State = {}
 
@@ -141,6 +145,30 @@ main :: proc() {
 				usage = {.Storage, .CopyDst},
 			},
 		)
+		g_state.vertex_array = create_circle_vertices(
+			Circle {
+				radius = 0.5,
+				subdivisions = 6,
+				inner_radius = 0.25,
+				start_angle = 0,
+				end_angle = math.TAU,
+			},
+		)
+		g_state.vertex_storage_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{
+				label = "vertex storage buffer",
+				size = u64(size_of(Vert) * len(g_state.vertex_array)),
+				usage = {.Storage, .CopyDst},
+			},
+		)
+		wgpu.QueueWriteBuffer(
+			g_state.queue,
+			g_state.vertex_storage_buffer,
+			0,
+			raw_data(g_state.vertex_array[:]),
+			uint(size_of(Vert) * len(g_state.vertex_array)),
+		)
 
 		g_state.object_infos = make_slice([]ObjectInfo, NUM_OBJECTS)
 
@@ -171,7 +199,7 @@ main :: proc() {
 			&{
 				label = "bind group for objects",
 				layout = wgpu.RenderPipelineGetBindGroupLayout(g_state.pipeline, 0),
-				entryCount = 2,
+				entryCount = 3,
 				entries = raw_data(
 					[]wgpu.BindGroupEntry {
 						{
@@ -184,12 +212,69 @@ main :: proc() {
 							buffer = g_state.dynamic_storage_buffer,
 							size = DYNAMIC_STORAGE_SIZE,
 						},
+						{
+							binding = 2,
+							buffer = g_state.vertex_storage_buffer,
+							size = u64(size_of(Vert) * len(g_state.vertex_array)),
+						},
 					},
 				),
 			},
 		)
 		g_state.device_ready = true
 	}
+}
+
+Circle :: struct {
+	radius:       f32,
+	subdivisions: int,
+	inner_radius: f32,
+	start_angle:  f32,
+	end_angle:    f32,
+}
+Vert :: [2]f32
+
+create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
+	// 2 tris per subdivision, 3 verts per tri, 2 values (xy) each.
+	n_verts: int = c.subdivisions * 3 * 2
+	verts := make_dynamic_array_len_cap([dynamic]Vert, 0, n_verts)
+
+	// 2 tris per subdivision
+	//
+	// 0--1 4
+	// | / /|
+	// |/ / |
+	// 2 3--5
+	for i := 0; i < c.subdivisions; i += 1 {
+		angle1: f32 =
+			c.start_angle + (f32(i) + 0) * (c.end_angle - c.start_angle) / f32(c.subdivisions)
+		angle2: f32 =
+			c.start_angle + (f32(i) + 1) * (c.end_angle - c.start_angle) / f32(c.subdivisions)
+
+		c1 := math.cos(angle1)
+		s1 := math.sin(angle1)
+		c2 := math.cos(angle2)
+		s2 := math.sin(angle2)
+
+		{
+			v1: Vert = {c1 * c.radius, s1 * c.radius}
+			v2: Vert = {c2 * c.radius, s2 * c.radius}
+			v3: Vert = {c1 * c.inner_radius, s1 * c.inner_radius}
+			append_elem(&verts, v1)
+			append_elem(&verts, v2)
+			append_elem(&verts, v3)
+		}
+		{
+			v1: Vert = {c1 * c.inner_radius, s1 * c.inner_radius}
+			v2: Vert = {c2 * c.radius, s2 * c.radius}
+			v3: Vert = {c2 * c.inner_radius, s2 * c.inner_radius}
+			append_elem(&verts, v1)
+			append_elem(&verts, v2)
+			append_elem(&verts, v3)
+		}
+	}
+
+	return verts
 }
 
 resize :: proc "c" () {
@@ -249,7 +334,13 @@ draw_scene :: proc() {
 	)
 
 	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
-	wgpu.RenderPassEncoderDraw(render_pass_encoder, 3, NUM_OBJECTS, 0, 0)
+	wgpu.RenderPassEncoderDraw(
+		render_pass_encoder,
+		u32(len(g_state.vertex_array)),
+		NUM_OBJECTS,
+		0,
+		0,
+	)
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)
 
