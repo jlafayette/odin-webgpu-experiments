@@ -9,9 +9,8 @@ import "vendor:wgpu"
 SHADER :: #load("shader.wgsl")
 
 StaticStorage :: struct {
-	color:    [4]f32,
-	offset:   [2]f32,
-	_padding: [2]f32,
+	color:  [4]f32,
+	offset: [2]f32,
 }
 DynamicStorage :: struct {
 	scale: [2]f32,
@@ -22,30 +21,29 @@ ObjectInfo :: struct {
 }
 
 NUM_OBJECTS :: 100
-STATIC_STORAGE_SIZE :: size_of(StaticStorage) * NUM_OBJECTS
-DYNAMIC_STORAGE_SIZE :: size_of(DynamicStorage) * NUM_OBJECTS
+STATIC_VERTEX_SIZE :: size_of(StaticStorage) * NUM_OBJECTS
+DYNAMIC_VERTEX_SIZE :: size_of(DynamicStorage) * NUM_OBJECTS
 
 State :: struct {
-	ctx:                    runtime.Context,
-	device_ready:           bool,
-	instance:               wgpu.Instance,
-	surface:                wgpu.Surface,
-	adapter:                wgpu.Adapter,
-	device:                 wgpu.Device,
-	config:                 wgpu.SurfaceConfiguration,
-	queue:                  wgpu.Queue,
-	module:                 wgpu.ShaderModule,
-	pipeline:               wgpu.RenderPipeline,
-	object_infos:           []ObjectInfo,
+	ctx:                   runtime.Context,
+	device_ready:          bool,
+	instance:              wgpu.Instance,
+	surface:               wgpu.Surface,
+	adapter:               wgpu.Adapter,
+	device:                wgpu.Device,
+	config:                wgpu.SurfaceConfiguration,
+	queue:                 wgpu.Queue,
+	module:                wgpu.ShaderModule,
+	pipeline:              wgpu.RenderPipeline,
+	object_infos:          []ObjectInfo,
 	//
-	static_storage_buffer:  wgpu.Buffer,
-	dynamic_storage_buffer: wgpu.Buffer,
-	bind_group:             wgpu.BindGroup,
-	static_values:          []StaticStorage,
-	storage_values:         []DynamicStorage,
+	static_vertex_buffer:  wgpu.Buffer,
+	dynamic_vertex_buffer: wgpu.Buffer,
+	static_values:         []StaticStorage,
+	storage_values:        []DynamicStorage,
 	//
-	vertex_array:           [dynamic]Vert,
-	vertex_buffer:          wgpu.Buffer,
+	vertex_array:          [dynamic]Vert,
+	vertex_buffer:         wgpu.Buffer,
 }
 g_state: State = {}
 
@@ -57,9 +55,8 @@ finish :: proc() {
 	wgpu.AdapterRelease(g_state.adapter)
 	wgpu.SurfaceRelease(g_state.surface)
 	wgpu.InstanceRelease(g_state.instance)
-	wgpu.BindGroupRelease(g_state.bind_group)
-	wgpu.BufferRelease(g_state.static_storage_buffer)
-	wgpu.BufferRelease(g_state.dynamic_storage_buffer)
+	wgpu.BufferRelease(g_state.static_vertex_buffer)
+	wgpu.BufferRelease(g_state.dynamic_vertex_buffer)
 	wgpu.BufferRelease(g_state.vertex_buffer)
 
 	delete(g_state.object_infos)
@@ -134,7 +131,7 @@ main :: proc() {
 				label = "vertex pipeline",
 				vertex = {
 					module      = g_state.module,
-					bufferCount = 1,
+					bufferCount = 3,
 					buffers     = raw_data(
 						[]wgpu.VertexBufferLayout {
 							{
@@ -143,7 +140,28 @@ main :: proc() {
 								attributeCount = 1,
 								attributes     = raw_data(
 									[]wgpu.VertexAttribute {
-										{shaderLocation = 0, offset = 0, format = .Float32x2},
+										{shaderLocation = 0, offset = 0, format = .Float32x2}, // position
+									},
+								),
+							},
+							{
+								stepMode       = .Instance,
+								arrayStride    = 6 * 4, // 6 f32, 4 bytes each
+								attributeCount = 2,
+								attributes     = raw_data(
+									[]wgpu.VertexAttribute {
+										{shaderLocation = 1, offset = 0, format = .Float32x4}, // color
+										{shaderLocation = 2, offset = 16, format = .Float32x2}, // offset
+									},
+								),
+							},
+							{
+								stepMode       = .Instance,
+								arrayStride    = 2 * 4, // 2 f32, 4 bytes each
+								attributeCount = 1,
+								attributes     = raw_data(
+									[]wgpu.VertexAttribute {
+										{shaderLocation = 3, offset = 0, format = .Float32x2}, // scale
 									},
 								),
 							},
@@ -165,20 +183,20 @@ main :: proc() {
 			},
 		)
 
-		g_state.static_storage_buffer = wgpu.DeviceCreateBuffer(
+		g_state.static_vertex_buffer = wgpu.DeviceCreateBuffer(
 			g_state.device,
 			&{
-				label = "static storage buffer",
-				size = STATIC_STORAGE_SIZE,
-				usage = {.Storage, .CopyDst},
+				label = "static vertex buffer",
+				size = STATIC_VERTEX_SIZE,
+				usage = {.Vertex, .CopyDst},
 			},
 		)
-		g_state.dynamic_storage_buffer = wgpu.DeviceCreateBuffer(
+		g_state.dynamic_vertex_buffer = wgpu.DeviceCreateBuffer(
 			g_state.device,
 			&{
-				label = "dynamic storage buffer",
-				size = DYNAMIC_STORAGE_SIZE,
-				usage = {.Storage, .CopyDst},
+				label = "dynamic vertex buffer",
+				size = DYNAMIC_VERTEX_SIZE,
+				usage = {.Vertex, .CopyDst},
 			},
 		)
 		g_state.vertex_array = create_circle_vertices(
@@ -222,36 +240,14 @@ main :: proc() {
 		}
 		wgpu.QueueWriteBuffer(
 			g_state.queue,
-			g_state.static_storage_buffer,
+			g_state.static_vertex_buffer,
 			0,
 			raw_data(g_state.static_values),
-			STATIC_STORAGE_SIZE,
+			STATIC_VERTEX_SIZE,
 		)
 
 		g_state.storage_values = make_slice([]DynamicStorage, NUM_OBJECTS)
 
-		g_state.bind_group = wgpu.DeviceCreateBindGroup(
-			g_state.device,
-			&{
-				label = "bind group for objects",
-				layout = wgpu.RenderPipelineGetBindGroupLayout(g_state.pipeline, 0),
-				entryCount = 2,
-				entries = raw_data(
-					[]wgpu.BindGroupEntry {
-						{
-							binding = 0,
-							buffer = g_state.static_storage_buffer,
-							size = STATIC_STORAGE_SIZE,
-						},
-						{
-							binding = 1,
-							buffer = g_state.dynamic_storage_buffer,
-							size = DYNAMIC_STORAGE_SIZE,
-						},
-					},
-				),
-			},
-		)
 		g_state.device_ready = true
 	}
 }
@@ -358,6 +354,20 @@ draw_scene :: proc() {
 		0,
 		u64(size_of(Vert) * len(g_state.vertex_array)),
 	)
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		render_pass_encoder,
+		1,
+		g_state.static_vertex_buffer,
+		0,
+		STATIC_VERTEX_SIZE,
+	)
+	wgpu.RenderPassEncoderSetVertexBuffer(
+		render_pass_encoder,
+		2,
+		g_state.dynamic_vertex_buffer,
+		0,
+		DYNAMIC_VERTEX_SIZE,
+	)
 
 	aspect := f32(g_state.config.width) / f32(g_state.config.height)
 	for obj, i in g_state.object_infos {
@@ -365,13 +375,12 @@ draw_scene :: proc() {
 	}
 	wgpu.QueueWriteBuffer(
 		g_state.queue,
-		g_state.dynamic_storage_buffer,
+		g_state.dynamic_vertex_buffer,
 		0,
 		raw_data(g_state.storage_values),
-		DYNAMIC_STORAGE_SIZE,
+		DYNAMIC_VERTEX_SIZE,
 	)
 
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
 	wgpu.RenderPassEncoderDraw(
 		render_pass_encoder,
 		u32(len(g_state.vertex_array)),
