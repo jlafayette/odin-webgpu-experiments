@@ -136,32 +136,48 @@ main :: proc() {
 						[]wgpu.VertexBufferLayout {
 							{
 								stepMode       = .Vertex,
-								arrayStride    = 2 * 4, // 2 f32, 4 bytes each
+								arrayStride    = size_of(Vert), // 2 f32, 4 bytes each
 								attributeCount = 1,
 								attributes     = raw_data(
 									[]wgpu.VertexAttribute {
-										{shaderLocation = 0, offset = 0, format = .Float32x2}, // position
+										{
+											shaderLocation = 0,
+											offset = cast(u64)offset_of(Vert, position),
+											format = .Float32x2,
+										}, // position
 									},
 								),
 							},
 							{
 								stepMode       = .Instance,
-								arrayStride    = 6 * 4, // 6 f32, 4 bytes each
+								arrayStride    = size_of(StaticStorage), // 6 f32, 4 bytes each
 								attributeCount = 2,
 								attributes     = raw_data(
 									[]wgpu.VertexAttribute {
-										{shaderLocation = 1, offset = 0, format = .Float32x4}, // color
-										{shaderLocation = 2, offset = 16, format = .Float32x2}, // offset
+										{
+											shaderLocation = 1,
+											offset = cast(u64)offset_of(StaticStorage, color),
+											format = .Float32x4,
+										}, // color
+										{
+											shaderLocation = 2,
+											offset = cast(u64)offset_of(StaticStorage, offset),
+											format = .Float32x2,
+										}, // offset
 									},
 								),
 							},
 							{
 								stepMode       = .Instance,
-								arrayStride    = 2 * 4, // 2 f32, 4 bytes each
+								arrayStride    = size_of(DynamicStorage), // 2 f32, 4 bytes each
 								attributeCount = 1,
 								attributes     = raw_data(
 									[]wgpu.VertexAttribute {
-										{shaderLocation = 3, offset = 0, format = .Float32x2}, // scale
+										{
+											shaderLocation = 3,
+											offset = cast(u64)offset_of(DynamicStorage, scale),
+											format = .Float32x2,
+										}, // scale
 									},
 								),
 							},
@@ -259,7 +275,9 @@ Circle :: struct {
 	start_angle:  f32,
 	end_angle:    f32,
 }
-Vert :: [2]f32
+Vert :: struct {
+	position: [2]f32,
+}
 
 create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 	// 2 tris per subdivision, 3 verts per tri, 2 values (xy) each.
@@ -284,17 +302,29 @@ create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 		s2 := math.sin(angle2)
 
 		{
-			v1: Vert = {c1 * c.radius, s1 * c.radius}
-			v2: Vert = {c2 * c.radius, s2 * c.radius}
-			v3: Vert = {c1 * c.inner_radius, s1 * c.inner_radius}
+			v1: Vert = {
+				position = {c1 * c.radius, s1 * c.radius},
+			}
+			v2: Vert = {
+				position = {c2 * c.radius, s2 * c.radius},
+			}
+			v3: Vert = {
+				position = {c1 * c.inner_radius, s1 * c.inner_radius},
+			}
 			append_elem(&verts, v1)
 			append_elem(&verts, v2)
 			append_elem(&verts, v3)
 		}
 		{
-			v1: Vert = {c1 * c.inner_radius, s1 * c.inner_radius}
-			v2: Vert = {c2 * c.radius, s2 * c.radius}
-			v3: Vert = {c2 * c.inner_radius, s2 * c.inner_radius}
+			v1: Vert = {
+				position = {c1 * c.inner_radius, s1 * c.inner_radius},
+			}
+			v2: Vert = {
+				position = {c2 * c.radius, s2 * c.radius},
+			}
+			v3: Vert = {
+				position = {c2 * c.inner_radius, s2 * c.inner_radius},
+			}
 			append_elem(&verts, v1)
 			append_elem(&verts, v2)
 			append_elem(&verts, v3)
