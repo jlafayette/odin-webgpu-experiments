@@ -9,11 +9,15 @@ import "vendor:wgpu"
 SHADER :: #load("shader.wgsl")
 
 StaticStorage :: struct {
-	color:  [4]f32,
+	color:  [4]u8,
 	offset: [2]f32,
 }
 DynamicStorage :: struct {
 	scale: [2]f32,
+}
+Vert :: struct {
+	position: [2]f32,
+	color:    [4]u8,
 }
 
 ObjectInfo :: struct {
@@ -148,7 +152,7 @@ main :: proc() {
 										{
 											shaderLocation = 4,
 											offset = cast(u64)offset_of(Vert, color),
-											format = .Float32x3,
+											format = .Unorm8x4,
 										}, // per vertex color
 									},
 								),
@@ -162,7 +166,7 @@ main :: proc() {
 										{
 											shaderLocation = 1,
 											offset = cast(u64)offset_of(StaticStorage, color),
-											format = .Float32x4,
+											format = .Unorm8x4,
 										}, // color
 										{
 											shaderLocation = 2,
@@ -251,9 +255,9 @@ main :: proc() {
 		g_state.static_values = make_slice([]StaticStorage, NUM_OBJECTS)
 		for &v, i in g_state.static_values {
 			v.color = {
-				rand.float32_range(0, 1),
-				rand.float32_range(0, 1),
-				rand.float32_range(0, 1),
+				cast(u8)rand.int_range(0, 256),
+				cast(u8)rand.int_range(0, 256),
+				cast(u8)rand.int_range(0, 256),
 				1,
 			}
 			v.offset = {rand.float32_range(-0.9, 0.9), rand.float32_range(-0.9, 0.9)}
@@ -280,18 +284,14 @@ Circle :: struct {
 	start_angle:  f32,
 	end_angle:    f32,
 }
-Vert :: struct {
-	position: [2]f32,
-	color:    [3]f32,
-}
 
 create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 	// 2 tris per subdivision, 3 verts per tri, 2 values (xy) each.
 	n_verts: int = c.subdivisions * 3 * 2
 	verts := make_dynamic_array_len_cap([dynamic]Vert, 0, n_verts)
 
-	inner_color: [3]f32 = {1, 1, 1}
-	outer_color: [3]f32 = {0.1, 0.1, 0.1}
+	inner_color: [4]u8 = {255, 255, 255, 255}
+	outer_color: [4]u8 = {25, 25, 25, 255}
 
 	// 2 tris per subdivision
 	//
