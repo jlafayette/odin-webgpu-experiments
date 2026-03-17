@@ -48,6 +48,9 @@ State :: struct {
 	//
 	vertex_array:          [dynamic]Vert,
 	vertex_buffer:         wgpu.Buffer,
+	//
+	index_array:           [dynamic]u16,
+	index_buffer:          wgpu.Buffer,
 }
 g_state: State = {}
 
@@ -62,11 +65,13 @@ finish :: proc() {
 	wgpu.BufferRelease(g_state.static_vertex_buffer)
 	wgpu.BufferRelease(g_state.dynamic_vertex_buffer)
 	wgpu.BufferRelease(g_state.vertex_buffer)
+	wgpu.BufferRelease(g_state.index_buffer)
 
 	delete(g_state.object_infos)
 	delete(g_state.static_values)
 	delete(g_state.storage_values)
 	delete(g_state.vertex_array)
+	delete(g_state.index_array)
 }
 
 main :: proc() {
@@ -224,7 +229,7 @@ main :: proc() {
 				usage = {.Vertex, .CopyDst},
 			},
 		)
-		g_state.vertex_array = create_circle_vertices(
+		g_state.vertex_array, g_state.index_array = create_circle_vertices(
 			Circle {
 				radius = 0.5,
 				subdivisions = 24,
@@ -233,6 +238,7 @@ main :: proc() {
 				end_angle = math.TAU,
 			},
 		)
+		fmt.printfln("created %d vertexes", len(g_state.vertex_array))
 		g_state.vertex_buffer = wgpu.DeviceCreateBuffer(
 			g_state.device,
 			&{
@@ -241,12 +247,27 @@ main :: proc() {
 				usage = {.Vertex, .CopyDst},
 			},
 		)
+		g_state.index_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{
+				label = "index buffer",
+				size = u64(size_of(u16) * len(g_state.index_array)),
+				usage = {.Index, .CopyDst},
+			},
+		)
 		wgpu.QueueWriteBuffer(
 			g_state.queue,
 			g_state.vertex_buffer,
 			0,
 			raw_data(g_state.vertex_array[:]),
 			uint(size_of(Vert) * len(g_state.vertex_array)),
+		)
+		wgpu.QueueWriteBuffer(
+			g_state.queue,
+			g_state.index_buffer,
+			0,
+			raw_data(g_state.index_array[:]),
+			uint(size_of(u16) * len(g_state.index_array)),
 		)
 
 		g_state.object_infos = make_slice([]ObjectInfo, NUM_OBJECTS)
@@ -285,9 +306,9 @@ Circle :: struct {
 	end_angle:    f32,
 }
 
-create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
-	// 2 tris per subdivision, 3 verts per tri, 2 values (xy) each.
-	n_verts: int = c.subdivisions * 3 * 2
+create_circle_vertices :: proc(c: Circle) -> ([dynamic]Vert, [dynamic]u16) {
+	// 2 vertices at each subdivision, + 1 to wrap around the circle.
+	n_verts: int = (c.subdivisions + 1) * 2
 	verts := make_dynamic_array_len_cap([dynamic]Vert, 0, n_verts)
 
 	inner_color: [4]u8 = {255, 255, 255, 255}
@@ -295,58 +316,54 @@ create_circle_vertices :: proc(c: Circle) -> [dynamic]Vert {
 
 	// 2 tris per subdivision
 	//
-	// 0--1 4
-	// | / /|
-	// |/ / |
-	// 2 3--5
-	for i := 0; i < c.subdivisions; i += 1 {
-		angle1: f32 =
+	// 0 2 4 6 8 ...
+	//
+	// 1 3 5 7 9 ...
+	for i := 0; i <= c.subdivisions; i += 1 {
+		angle: f32 =
 			c.start_angle + (f32(i) + 0) * (c.end_angle - c.start_angle) / f32(c.subdivisions)
-		angle2: f32 =
-			c.start_angle + (f32(i) + 1) * (c.end_angle - c.start_angle) / f32(c.subdivisions)
 
-		c1 := math.cos(angle1)
-		s1 := math.sin(angle1)
-		c2 := math.cos(angle2)
-		s2 := math.sin(angle2)
+		c1 := math.cos(angle)
+		s1 := math.sin(angle)
 
-		{
-			v1: Vert = {
-				position = {c1 * c.radius, s1 * c.radius},
-				color    = outer_color,
-			}
-			v2: Vert = {
-				position = {c2 * c.radius, s2 * c.radius},
-				color    = outer_color,
-			}
-			v3: Vert = {
-				position = {c1 * c.inner_radius, s1 * c.inner_radius},
-				color    = inner_color,
-			}
-			append_elem(&verts, v1)
-			append_elem(&verts, v2)
-			append_elem(&verts, v3)
+		v1: Vert = {
+			position = {c1 * c.radius, s1 * c.radius},
+			color    = outer_color,
 		}
-		{
-			v1: Vert = {
-				position = {c1 * c.inner_radius, s1 * c.inner_radius},
-				color    = inner_color,
-			}
-			v2: Vert = {
-				position = {c2 * c.radius, s2 * c.radius},
-				color    = outer_color,
-			}
-			v3: Vert = {
-				position = {c2 * c.inner_radius, s2 * c.inner_radius},
-				color    = inner_color,
-			}
-			append_elem(&verts, v1)
-			append_elem(&verts, v2)
-			append_elem(&verts, v3)
+		v2: Vert = {
+			position = {c1 * c.inner_radius, s1 * c.inner_radius},
+			color    = inner_color,
 		}
+		append_elem(&verts, v1)
+		append_elem(&verts, v2)
 	}
 
-	return verts
+	n_indices := c.subdivisions * 6
+	indices := make_dynamic_array_len_cap([dynamic]u16, 0, n_indices)
+
+	// 1st tri  2nd tri  3rd tri  4th tri
+	// 0 1 2    2 1 3    2 3 4    4 3 5
+	//
+	// 0--2        2     2--4        4
+	// | /        /|     | /        /|
+	// |/        / |     |/        / |
+	// 1        1--3     3        3--5
+	//
+	for i: u16 = 0; int(i) < c.subdivisions; i += 1 {
+		idx_offset := i * 2
+
+		// first tri
+		append_elem(&indices, idx_offset + 0)
+		append_elem(&indices, idx_offset + 1)
+		append_elem(&indices, idx_offset + 2)
+
+		// second tri
+		append_elem(&indices, idx_offset + 2)
+		append_elem(&indices, idx_offset + 1)
+		append_elem(&indices, idx_offset + 3)
+	}
+
+	return verts, indices
 }
 
 resize :: proc "c" () {
@@ -413,6 +430,13 @@ draw_scene :: proc() {
 		0,
 		DYNAMIC_VERTEX_SIZE,
 	)
+	wgpu.RenderPassEncoderSetIndexBuffer(
+		render_pass_encoder,
+		g_state.index_buffer,
+		.Uint16,
+		0,
+		u64(size_of(u16) * len(g_state.index_array)),
+	)
 
 	aspect := f32(g_state.config.width) / f32(g_state.config.height)
 	for obj, i in g_state.object_infos {
@@ -426,10 +450,11 @@ draw_scene :: proc() {
 		DYNAMIC_VERTEX_SIZE,
 	)
 
-	wgpu.RenderPassEncoderDraw(
+	wgpu.RenderPassEncoderDrawIndexed(
 		render_pass_encoder,
-		u32(len(g_state.vertex_array)),
+		u32(len(g_state.index_array)),
 		NUM_OBJECTS,
+		0,
 		0,
 		0,
 	)
