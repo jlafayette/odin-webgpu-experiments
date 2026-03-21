@@ -1,6 +1,7 @@
 #+build js wasm32, js wasm64p32
 package game
 
+import "base:runtime"
 import "core:sys/wasm/js"
 import "vendor:wgpu"
 
@@ -18,7 +19,7 @@ step :: proc(dt: f32) -> (keep_going: bool) {
 }
 
 os_init :: proc() {
-	ok := js.add_window_event_listener(.Resize, nil, os_size_callback)
+	ok := js.add_window_event_listener(.Resize, nil, size_callback)
 	assert(ok)
 }
 
@@ -41,7 +42,15 @@ os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 }
 
 @(private = "file")
-os_size_callback :: proc(e: js.Event) {
+size_callback :: proc(e: js.Event) {
 	resize()
+}
+
+@(private = "file", fini)
+os_fini :: proc "contextless" () {
+	context = runtime.default_context()
+	js.remove_window_event_listener(.Resize, nil, size_callback)
+
+	finish()
 }
 

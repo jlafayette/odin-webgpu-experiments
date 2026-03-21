@@ -4,24 +4,32 @@ import "base:runtime"
 import "core:fmt"
 import "vendor:wgpu"
 
+SHADER :: #load("shader.wgsl")
+
 State :: struct {
-	ctx:             runtime.Context,
-	device_ready:    bool,
-	instance:        wgpu.Instance,
-	surface:         wgpu.Surface,
-	adapter:         wgpu.Adapter,
-	device:          wgpu.Device,
-	config:          wgpu.SurfaceConfiguration,
-	queue:           wgpu.Queue,
-	module:          wgpu.ShaderModule,
-	pipeline_layout: wgpu.PipelineLayout,
-	pipeline:        wgpu.RenderPipeline,
+	ctx:          runtime.Context,
+	device_ready: bool,
+	instance:     wgpu.Instance,
+	surface:      wgpu.Surface,
+	adapter:      wgpu.Adapter,
+	device:       wgpu.Device,
+	config:       wgpu.SurfaceConfiguration,
+	queue:        wgpu.Queue,
+	module:       wgpu.ShaderModule,
+	pipeline:     wgpu.RenderPipeline,
 }
 g_state: State = {}
 
 
-TRI_SHADER :: #load("tri.wgsl")
-
+finish :: proc() {
+	wgpu.RenderPipelineRelease(g_state.pipeline)
+	wgpu.ShaderModuleRelease(g_state.module)
+	wgpu.QueueRelease(g_state.queue)
+	wgpu.DeviceRelease(g_state.device)
+	wgpu.AdapterRelease(g_state.adapter)
+	wgpu.SurfaceRelease(g_state.surface)
+	wgpu.InstanceRelease(g_state.instance)
+}
 
 main :: proc() {
 	g_state.ctx = context
@@ -78,17 +86,15 @@ main :: proc() {
 		}
 		wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 		g_state.queue = wgpu.DeviceGetQueue(g_state.device)
-		shader := string(TRI_SHADER)
+		shader := string(SHADER)
 		g_state.module = wgpu.DeviceCreateShaderModule(
 			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
-		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(g_state.device, &{})
 		g_state.pipeline = wgpu.DeviceCreateRenderPipeline(
 			g_state.device,
 			&{
 				label = "tri pipeline",
-				layout = g_state.pipeline_layout,
 				vertex = {module = g_state.module, entryPoint = "vs"},
 				fragment = &{
 					module = g_state.module,
