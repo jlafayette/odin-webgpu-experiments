@@ -7,10 +7,13 @@ import "vendor:wgpu"
 
 SHADER :: #load("shader.wgsl")
 
-StaticUniforms :: struct {
-	color:    [4]f32,
-	offset:   [2]f32,
-	_padding: [2]f32,
+// Requires align directive or fields for padding
+// Use this site to understand WGSL offsets
+// https://webgpufundamentals.org/webgpu/lessons/resources/wgsl-offset-computer.html
+//
+StaticUniforms :: struct #align (16) {
+	color:  [4]f32,
+	offset: [2]f32,
 }
 DynamicUniforms :: struct {
 	scale: [2]f32,
