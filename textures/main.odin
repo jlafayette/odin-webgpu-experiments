@@ -6,9 +6,39 @@ import "vendor:wgpu"
 
 SHADER :: #load("shader.wgsl")
 
+
+Settings :: struct {
+	address_mode_u: wgpu.AddressMode,
+	address_mode_v: wgpu.AddressMode,
+	mag_filter:     wgpu.FilterMode,
+}
+
+settings_to_index :: proc(s: Settings) -> int {
+
+	// address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
+	u_i := 0
+	if s.address_mode_u == .Repeat {
+		u_i = 1
+	}
+	v_i := 0
+	if s.address_mode_v == .Repeat {
+		v_i = 1
+	}
+
+	// filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
+	f_i := 0
+	if s.mag_filter == .Linear {
+		f_i = 1
+	}
+
+	return u_i * 4 + v_i * 2 + f_i
+}
+
+
 State :: struct {
 	ctx:               runtime.Context,
 	device_ready:      bool,
+	settings:          Settings,
 	instance:          wgpu.Instance,
 	surface:           wgpu.Surface,
 	adapter:           wgpu.Adapter,
@@ -20,8 +50,8 @@ State :: struct {
 	pipeline_layout:   wgpu.PipelineLayout,
 	texture:           wgpu.Texture,
 	texture_view:      wgpu.TextureView,
-	sampler:           wgpu.Sampler,
-	bind_group:        wgpu.BindGroup,
+	samplers:          [8]wgpu.Sampler,
+	bind_groups:       [8]wgpu.BindGroup,
 	bind_group_layout: wgpu.BindGroupLayout,
 }
 g_state: State = {}
@@ -37,8 +67,12 @@ finish :: proc() {
 	wgpu.InstanceRelease(g_state.instance)
 	wgpu.TextureRelease(g_state.texture)
 	wgpu.TextureViewRelease(g_state.texture_view)
-	wgpu.SamplerRelease(g_state.sampler)
-	wgpu.BindGroupRelease(g_state.bind_group)
+	for v, i in g_state.samplers {
+		wgpu.SamplerRelease(v)
+	}
+	for v in g_state.bind_groups {
+		wgpu.BindGroupRelease(v)
+	}
 	wgpu.BindGroupLayoutRelease(g_state.bind_group_layout)
 }
 
@@ -48,13 +82,13 @@ R: [4]u8 : {255, 0, 0, 255} // red
 Y: [4]u8 : {255, 255, 0, 255} // yellow
 B: [4]u8 : {0, 0, 255, 255} // blue
 TEXTURE_DATA: [TEXTURE_DIM.y][TEXTURE_DIM.x][4]u8 = {
-	{B, R, R, R, R},
-	{R, Y, Y, Y, R},
+	{R, R, R, R, R},
+	{R, Y, R, R, R},
 	{R, Y, R, R, R},
 	{R, Y, Y, R, R},
 	{R, Y, R, R, R},
-	{R, Y, R, R, R},
-	{R, R, R, R, R},
+	{R, Y, Y, Y, R},
+	{B, R, R, R, R},
 }
 
 main :: proc() {
@@ -129,7 +163,17 @@ main :: proc() {
 			},
 		)
 		g_state.texture_view = wgpu.TextureCreateView(g_state.texture, nil)
-		g_state.sampler = wgpu.DeviceCreateSampler(g_state.device, nil)
+		fmt.println("dataSize:", size_of(TEXTURE_DATA))
+		fmt.println("bytesPerRow:", size_of(TEXTURE_DATA[0]))
+		wgpu.QueueWriteTexture(
+			queue = g_state.queue,
+			destination = &{texture = g_state.texture},
+			data = raw_data(TEXTURE_DATA[:]),
+			dataSize = size_of(TEXTURE_DATA),
+			dataLayout = &{bytesPerRow = size_of(TEXTURE_DATA[0]), rowsPerImage = TEXTURE_DIM.y},
+			writeSize = &{width = TEXTURE_DIM.x, height = TEXTURE_DIM.y, depthOrArrayLayers = 1},
+		)
+
 		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			g_state.device,
 			&{
@@ -150,30 +194,45 @@ main :: proc() {
 				),
 			},
 		)
-		g_state.bind_group = wgpu.DeviceCreateBindGroup(
-			g_state.device,
-			&{
-				label = "textures bind group",
-				layout = g_state.bind_group_layout,
-				entryCount = 2,
-				entries = raw_data(
-					[]wgpu.BindGroupEntry {
-						{binding = 0, sampler = g_state.sampler},
-						{binding = 1, textureView = g_state.texture_view},
-					},
-				),
-			},
-		)
-		fmt.println("dataSize:", size_of(TEXTURE_DATA))
-		fmt.println("bytesPerRow:", size_of(TEXTURE_DATA[0]))
-		wgpu.QueueWriteTexture(
-			queue = g_state.queue,
-			destination = &{texture = g_state.texture},
-			data = raw_data(TEXTURE_DATA[:]),
-			dataSize = size_of(TEXTURE_DATA),
-			dataLayout = &{bytesPerRow = size_of(TEXTURE_DATA[0]), rowsPerImage = TEXTURE_DIM.y},
-			writeSize = &{width = TEXTURE_DIM.x, height = TEXTURE_DIM.y, depthOrArrayLayers = 1},
-		)
+
+		address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
+		filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
+		for address_mode_u, iu in address_modes {
+			for address_mode_v, iv in address_modes {
+				for filter, if_ in filters {
+					i := iu * 4 + iv * 2 + if_
+					g_state.samplers[i] = wgpu.DeviceCreateSampler(
+						g_state.device,
+						&{
+							addressModeU = address_mode_u,
+							addressModeV = address_mode_v,
+							addressModeW = .ClampToEdge,
+							magFilter = filter,
+							minFilter = .Nearest,
+							mipmapFilter = .Nearest,
+							lodMinClamp = 0,
+							lodMaxClamp = 32,
+							compare = nil,
+							maxAnisotropy = 1,
+						},
+					)
+					g_state.bind_groups[i] = wgpu.DeviceCreateBindGroup(
+						g_state.device,
+						&{
+							label = "textures bind group",
+							layout = g_state.bind_group_layout,
+							entryCount = 2,
+							entries = raw_data(
+								[]wgpu.BindGroupEntry {
+									{binding = 0, sampler = g_state.samplers[i]},
+									{binding = 1, textureView = g_state.texture_view},
+								},
+							),
+						},
+					)
+				}
+			}
+		}
 
 		g_state.pipeline_layout = wgpu.DeviceCreatePipelineLayout(
 			g_state.device,
@@ -208,6 +267,10 @@ resize :: proc "c" () {
 	g_state.config.width, g_state.config.height = os_get_framebuffer_size()
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 	// fmt.println("resize", g_state.config.width, g_state.config.height)
+}
+
+update :: proc(dt: f32) {
+	handle_events(&g_state.settings)
 }
 
 draw_scene :: proc() {
@@ -248,7 +311,11 @@ draw_scene :: proc() {
 	)
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
-	wgpu.RenderPassEncoderSetBindGroup(render_pass_encoder, 0, g_state.bind_group)
+	wgpu.RenderPassEncoderSetBindGroup(
+		render_pass_encoder,
+		0,
+		g_state.bind_groups[settings_to_index(g_state.settings)],
+	)
 	wgpu.RenderPassEncoderDraw(
 		render_pass_encoder,
 		vertexCount = 6,

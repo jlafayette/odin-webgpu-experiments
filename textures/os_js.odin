@@ -9,7 +9,7 @@ import "vendor:wgpu"
 step :: proc(dt: f32) -> (keep_going: bool) {
 	defer free_all(context.temp_allocator)
 
-	// update(dt)
+	update(dt)
 
 	if g_state.device_ready {
 		draw_scene()
@@ -19,8 +19,8 @@ step :: proc(dt: f32) -> (keep_going: bool) {
 }
 
 os_init :: proc() {
-	ok := js.add_window_event_listener(.Resize, nil, size_callback)
-	assert(ok)
+	ok := js.add_window_event_listener(.Resize, nil, size_callback); assert(ok)
+	ok = js.add_window_event_listener(.Key_Down, nil, on_key_down); assert(ok)
 }
 
 os_get_framebuffer_size :: proc() -> (width, height: u32) {
@@ -44,6 +44,20 @@ os_get_surface :: proc(instance: wgpu.Instance) -> wgpu.Surface {
 @(private = "file")
 size_callback :: proc(e: js.Event) {
 	resize()
+}
+
+@(private = "file")
+on_key_down :: proc(e: js.Event) {
+	if e.key.repeat {
+		return
+	}
+	if e.key.code == "KeyA" {
+		event_add(EventToggleTextureAddressModeU{})
+	} else if e.key.code == "KeyS" {
+		event_add(EventToggleTextureAddressModeV{})
+	} else if e.key.code == "KeyD" {
+		event_add(EventToggleTextureMagFilterMode{})
+	}
 }
 
 @(private = "file", fini)
