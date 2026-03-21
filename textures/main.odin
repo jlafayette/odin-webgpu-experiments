@@ -95,6 +95,9 @@ main :: proc() {
 	g_state.ctx = context
 
 	os_init()
+	g_state.settings.address_mode_u = .ClampToEdge
+	g_state.settings.address_mode_v = .ClampToEdge
+	g_state.settings.mag_filter = .Nearest
 
 	g_state.instance = wgpu.CreateInstance(nil)
 	if g_state.instance == nil {
