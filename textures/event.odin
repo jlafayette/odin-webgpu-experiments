@@ -1,17 +1,22 @@
 package game
 
 import "core:fmt"
+import "core:math"
 import "vendor:wgpu"
 
 EventToggleTextureAddressModeU :: struct {}
 EventToggleTextureAddressModeV :: struct {}
 EventToggleTextureMagFilterMode :: struct {}
 EventToggleTextureMinFilterMode :: struct {}
+EventChangeScale :: struct {
+	value: f32,
+}
 Event :: union {
 	EventToggleTextureAddressModeU,
 	EventToggleTextureAddressModeV,
 	EventToggleTextureMagFilterMode,
 	EventToggleTextureMinFilterMode,
+	EventChangeScale,
 }
 
 event_q: [dynamic]Event
@@ -66,6 +71,11 @@ handle_events :: proc(settings: ^Settings) {
 					settings.min_filter = .Nearest
 				}
 				fmt.println("min_filter:", settings.min_filter)
+			}
+		case EventChangeScale:
+			{
+				v := e.value + settings.scale
+				settings.scale = math.clamp(v, 0.5, 6)
 			}
 		}
 	}

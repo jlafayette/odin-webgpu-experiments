@@ -59,6 +59,10 @@ on_key_down :: proc(e: js.Event) {
 		event_add(EventToggleTextureMagFilterMode{})
 	} else if e.key.code == "KeyF" {
 		event_add(EventToggleTextureMinFilterMode{})
+	} else if e.key.code == "KeyQ" {
+		event_add(EventChangeScale{-0.25})
+	} else if e.key.code == "KeyW" {
+		event_add(EventChangeScale{0.25})
 	}
 }
 

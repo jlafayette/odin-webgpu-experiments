@@ -13,6 +13,7 @@ Settings :: struct {
 	address_mode_v: wgpu.AddressMode,
 	mag_filter:     wgpu.FilterMode,
 	min_filter:     wgpu.FilterMode,
+	scale:          f32,
 }
 settings_to_index :: proc(s: Settings) -> int {
 	// address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
@@ -84,19 +85,47 @@ finish :: proc() {
 	wgpu.BufferRelease(g_state.uniform_buffer)
 }
 
-TEXTURE_DIM: [2]u32 : {5, 7}
+TEXTURE_DIM: [2]int : {5, 7}
 TEXTURE_SIZE :: TEXTURE_DIM.x * TEXTURE_DIM.y
 R: [4]u8 : {255, 0, 0, 255} // red
 Y: [4]u8 : {255, 255, 0, 255} // yellow
 B: [4]u8 : {0, 0, 255, 255} // blue
-TEXTURE_DATA: [TEXTURE_DIM.y][TEXTURE_DIM.x][4]u8 = {
-	{R, R, R, R, R},
-	{R, Y, R, R, R},
-	{R, Y, R, R, R},
-	{R, Y, Y, R, R},
-	{R, Y, R, R, R},
-	{R, Y, Y, Y, R},
-	{B, R, R, R, R},
+TEXTURE_DATA: [TEXTURE_DIM.y * TEXTURE_DIM.x][4]u8 = {
+	R,
+	R,
+	R,
+	R,
+	R, //
+	R,
+	Y,
+	R,
+	R,
+	R, //
+	R,
+	Y,
+	R,
+	R,
+	R, //
+	R,
+	Y,
+	Y,
+	R,
+	R, //
+	R,
+	Y,
+	R,
+	R,
+	R, //
+	R,
+	Y,
+	Y,
+	Y,
+	R, //
+	B,
+	R,
+	R,
+	R,
+	R, //
 }
 
 main :: proc() {
@@ -107,6 +136,7 @@ main :: proc() {
 	g_state.settings.address_mode_v = .ClampToEdge
 	g_state.settings.mag_filter = .Nearest
 	g_state.settings.min_filter = .Nearest
+	g_state.settings.scale = 1
 
 	g_state.instance = wgpu.CreateInstance(nil)
 	if g_state.instance == nil {
@@ -164,28 +194,47 @@ main :: proc() {
 			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
+		first_mip: Mipmap = {
+			data = TEXTURE_DATA[:],
+			dim  = {TEXTURE_DIM.x, TEXTURE_DIM.y},
+		}
+		mips := generate_mips(first_mip)
 		g_state.texture = wgpu.DeviceCreateTexture(
 			g_state.device,
 			&{
 				label = "texture descriptor",
 				usage = {.TextureBinding, .CopyDst},
-				size = {width = TEXTURE_DIM.x, height = TEXTURE_DIM.y, depthOrArrayLayers = 1},
+				size = {
+					width = u32(mips[0].dim.x),
+					height = u32(mips[0].dim.y),
+					depthOrArrayLayers = 1,
+				},
 				format = .RGBA8Unorm,
 				sampleCount = 1,
-				mipLevelCount = 1,
+				mipLevelCount = u32(len(mips)),
 			},
 		)
 		g_state.texture_view = wgpu.TextureCreateView(g_state.texture, nil)
-		fmt.println("dataSize:", size_of(TEXTURE_DATA))
-		fmt.println("bytesPerRow:", size_of(TEXTURE_DATA[0]))
-		wgpu.QueueWriteTexture(
-			queue = g_state.queue,
-			destination = &{texture = g_state.texture},
-			data = raw_data(TEXTURE_DATA[:]),
-			dataSize = size_of(TEXTURE_DATA),
-			dataLayout = &{bytesPerRow = size_of(TEXTURE_DATA[0]), rowsPerImage = TEXTURE_DIM.y},
-			writeSize = &{width = TEXTURE_DIM.x, height = TEXTURE_DIM.y, depthOrArrayLayers = 1},
-		)
+		for mip, mip_level in mips {
+			data_size: uint = size_of(mip.data[0]) * len(mip.data)
+			bytes_per_row := u32(size_of(mip.data[0]) * mip.dim.x)
+			fmt.println("mip", mip)
+			fmt.println("mipLevel", mip_level)
+			fmt.println("- dataSize:", data_size)
+			fmt.println("- bytesPerRow:", bytes_per_row)
+			wgpu.QueueWriteTexture(
+				queue = g_state.queue,
+				destination = &{texture = g_state.texture, mipLevel = u32(mip_level)},
+				data = raw_data(mip.data[:]),
+				dataSize = data_size,
+				dataLayout = &{bytesPerRow = bytes_per_row, rowsPerImage = u32(mip.dim.y)},
+				writeSize = &{
+					width = u32(mip.dim.x),
+					height = u32(mip.dim.y),
+					depthOrArrayLayers = 1,
+				},
+			)
+		}
 
 		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
 			g_state.device,
@@ -333,8 +382,8 @@ draw_scene :: proc() {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 	{
-		scale_x: f32 = 4 / f32(g_state.config.width)
-		scale_y: f32 = 4 / f32(g_state.config.height)
+		scale_x: f32 = (4 / f32(g_state.config.width)) * g_state.settings.scale
+		scale_y: f32 = (4 / f32(g_state.config.height)) * g_state.settings.scale
 		g_state.uniform_values.scale = {scale_x, scale_y}
 		offset_x := cast(f32)math.sin(g_state.time * 0.25) * 0.8 - (scale_x * 0.5)
 		offset_y: f32 = -0.8
