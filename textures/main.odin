@@ -12,6 +12,7 @@ Settings :: struct {
 	address_mode_u: wgpu.AddressMode,
 	address_mode_v: wgpu.AddressMode,
 	mag_filter:     wgpu.FilterMode,
+	min_filter:     wgpu.FilterMode,
 }
 settings_to_index :: proc(s: Settings) -> int {
 	// address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
@@ -20,9 +21,11 @@ settings_to_index :: proc(s: Settings) -> int {
 	v_i := 0
 	if s.address_mode_v == .Repeat {v_i = 1}
 	// filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
-	f_i := 0
-	if s.mag_filter == .Linear {f_i = 1}
-	return u_i * 4 + v_i * 2 + f_i
+	mag_i := 0
+	if s.mag_filter == .Linear {mag_i = 1}
+	min_i := 0
+	if s.min_filter == .Linear {min_i = 1}
+	return u_i * 8 + v_i * 4 + mag_i * 2 + min_i
 }
 
 // No padding necessary
@@ -49,8 +52,8 @@ State :: struct {
 	pipeline_layout:   wgpu.PipelineLayout,
 	texture:           wgpu.Texture,
 	texture_view:      wgpu.TextureView,
-	samplers:          [8]wgpu.Sampler,
-	bind_groups:       [8]wgpu.BindGroup,
+	samplers:          [16]wgpu.Sampler,
+	bind_groups:       [16]wgpu.BindGroup,
 	bind_group_layout: wgpu.BindGroupLayout,
 	//
 	uniform_buffer:    wgpu.Buffer,
@@ -103,6 +106,7 @@ main :: proc() {
 	g_state.settings.address_mode_u = .ClampToEdge
 	g_state.settings.address_mode_v = .ClampToEdge
 	g_state.settings.mag_filter = .Nearest
+	g_state.settings.min_filter = .Nearest
 
 	g_state.instance = wgpu.CreateInstance(nil)
 	if g_state.instance == nil {
@@ -218,42 +222,45 @@ main :: proc() {
 		filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
 		for address_mode_u, iu in address_modes {
 			for address_mode_v, iv in address_modes {
-				for filter, if_ in filters {
-					i := iu * 4 + iv * 2 + if_
-					g_state.samplers[i] = wgpu.DeviceCreateSampler(
-						g_state.device,
-						&{
-							addressModeU = address_mode_u,
-							addressModeV = address_mode_v,
-							addressModeW = .ClampToEdge,
-							magFilter = filter,
-							minFilter = .Nearest,
-							mipmapFilter = .Nearest,
-							lodMinClamp = 0,
-							lodMaxClamp = 32,
-							compare = nil,
-							maxAnisotropy = 1,
-						},
-					)
-					g_state.bind_groups[i] = wgpu.DeviceCreateBindGroup(
-						g_state.device,
-						&{
-							label = "textures bind group",
-							layout = g_state.bind_group_layout,
-							entryCount = 3,
-							entries = raw_data(
-								[]wgpu.BindGroupEntry {
-									{binding = 0, sampler = g_state.samplers[i]},
-									{binding = 1, textureView = g_state.texture_view},
-									{
-										binding = 2,
-										buffer = g_state.uniform_buffer,
-										size = size_of(Uniforms),
+				for mag_filter, i_mag in filters {
+					for min_filter, i_min in filters {
+
+						i := iu * 8 + iv * 4 + i_mag * 2 + i_min
+						g_state.samplers[i] = wgpu.DeviceCreateSampler(
+							g_state.device,
+							&{
+								addressModeU = address_mode_u,
+								addressModeV = address_mode_v,
+								addressModeW = .ClampToEdge,
+								magFilter = mag_filter,
+								minFilter = min_filter,
+								mipmapFilter = .Nearest,
+								lodMinClamp = 0,
+								lodMaxClamp = 32,
+								compare = nil,
+								maxAnisotropy = 1,
+							},
+						)
+						g_state.bind_groups[i] = wgpu.DeviceCreateBindGroup(
+							g_state.device,
+							&{
+								label = "textures bind group",
+								layout = g_state.bind_group_layout,
+								entryCount = 3,
+								entries = raw_data(
+									[]wgpu.BindGroupEntry {
+										{binding = 0, sampler = g_state.samplers[i]},
+										{binding = 1, textureView = g_state.texture_view},
+										{
+											binding = 2,
+											buffer = g_state.uniform_buffer,
+											size = size_of(Uniforms),
+										},
 									},
-								},
-							),
-						},
-					)
+								),
+							},
+						)
+					}
 				}
 			}
 		}

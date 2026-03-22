@@ -6,10 +6,12 @@ import "vendor:wgpu"
 EventToggleTextureAddressModeU :: struct {}
 EventToggleTextureAddressModeV :: struct {}
 EventToggleTextureMagFilterMode :: struct {}
+EventToggleTextureMinFilterMode :: struct {}
 Event :: union {
 	EventToggleTextureAddressModeU,
 	EventToggleTextureAddressModeV,
 	EventToggleTextureMagFilterMode,
+	EventToggleTextureMinFilterMode,
 }
 
 event_q: [dynamic]Event
@@ -55,6 +57,15 @@ handle_events :: proc(settings: ^Settings) {
 					settings.mag_filter = .Nearest
 				}
 				fmt.println("mag_filter:", settings.mag_filter)
+			}
+		case EventToggleTextureMinFilterMode:
+			{
+				if settings.min_filter == .Nearest {
+					settings.min_filter = .Linear
+				} else {
+					settings.min_filter = .Nearest
+				}
+				fmt.println("min_filter:", settings.min_filter)
 			}
 		}
 	}
