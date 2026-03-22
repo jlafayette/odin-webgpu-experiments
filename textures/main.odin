@@ -2,6 +2,7 @@ package game
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "vendor:wgpu"
 
 SHADER :: #load("shader.wgsl")
@@ -24,6 +25,14 @@ settings_to_index :: proc(s: Settings) -> int {
 	return u_i * 4 + v_i * 2 + f_i
 }
 
+// No padding necessary
+// Use this site to check WGSL offsets
+// https://webgpufundamentals.org/webgpu/lessons/resources/wgsl-offset-computer.html
+//
+Uniforms :: struct {
+	scale:  [2]f32,
+	offset: [2]f32,
+}
 
 State :: struct {
 	ctx:               runtime.Context,
@@ -43,6 +52,11 @@ State :: struct {
 	samplers:          [8]wgpu.Sampler,
 	bind_groups:       [8]wgpu.BindGroup,
 	bind_group_layout: wgpu.BindGroupLayout,
+	//
+	uniform_buffer:    wgpu.Buffer,
+	uniform_values:    Uniforms,
+	//
+	time:              f64,
 }
 g_state: State = {}
 
@@ -64,6 +78,7 @@ finish :: proc() {
 		wgpu.BindGroupRelease(v)
 	}
 	wgpu.BindGroupLayoutRelease(g_state.bind_group_layout)
+	wgpu.BufferRelease(g_state.uniform_buffer)
 }
 
 TEXTURE_DIM: [2]u32 : {5, 7}
@@ -168,10 +183,15 @@ main :: proc() {
 			writeSize = &{width = TEXTURE_DIM.x, height = TEXTURE_DIM.y, depthOrArrayLayers = 1},
 		)
 
+		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
+			g_state.device,
+			&{label = "uniforms buffer", usage = {.Uniform, .CopyDst}, size = size_of(Uniforms)},
+		)
+
 		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			g_state.device,
 			&{
-				entryCount = 2,
+				entryCount = 3,
 				entries = raw_data(
 					[]wgpu.BindGroupLayoutEntry {
 						{binding = 0, visibility = {.Fragment}, sampler = {type = .Filtering}},
@@ -183,6 +203,11 @@ main :: proc() {
 								viewDimension = ._2D,
 								multisampled = false,
 							},
+						},
+						{
+							binding = 2,
+							visibility = {.Vertex},
+							buffer = {type = .Uniform, minBindingSize = size_of(Uniforms)},
 						},
 					},
 				),
@@ -215,11 +240,16 @@ main :: proc() {
 						&{
 							label = "textures bind group",
 							layout = g_state.bind_group_layout,
-							entryCount = 2,
+							entryCount = 3,
 							entries = raw_data(
 								[]wgpu.BindGroupEntry {
 									{binding = 0, sampler = g_state.samplers[i]},
 									{binding = 1, textureView = g_state.texture_view},
+									{
+										binding = 2,
+										buffer = g_state.uniform_buffer,
+										size = size_of(Uniforms),
+									},
 								},
 							),
 						},
@@ -270,6 +300,7 @@ resize :: proc "c" () {
 
 update :: proc(dt: f32) {
 	handle_events(&g_state.settings)
+	g_state.time += f64(dt)
 }
 
 draw_scene :: proc() {
@@ -293,6 +324,22 @@ draw_scene :: proc() {
 
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, &{label = "encoder"})
 	defer wgpu.CommandEncoderRelease(command_encoder)
+
+	{
+		scale_x: f32 = 4 / f32(g_state.config.width)
+		scale_y: f32 = 4 / f32(g_state.config.height)
+		g_state.uniform_values.scale = {scale_x, scale_y}
+		offset_x := cast(f32)math.sin(g_state.time * 0.25) * 0.8 - (scale_x * 0.5)
+		offset_y: f32 = -0.8
+		g_state.uniform_values.offset = {offset_x, offset_y}
+		wgpu.QueueWriteBuffer(
+			g_state.queue,
+			g_state.uniform_buffer,
+			0,
+			&g_state.uniform_values,
+			size_of(Uniforms),
+		)
+	}
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
