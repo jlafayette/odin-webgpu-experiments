@@ -12,25 +12,15 @@ Settings :: struct {
 	address_mode_v: wgpu.AddressMode,
 	mag_filter:     wgpu.FilterMode,
 }
-
 settings_to_index :: proc(s: Settings) -> int {
-
 	// address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
 	u_i := 0
-	if s.address_mode_u == .Repeat {
-		u_i = 1
-	}
+	if s.address_mode_u == .Repeat {u_i = 1}
 	v_i := 0
-	if s.address_mode_v == .Repeat {
-		v_i = 1
-	}
-
+	if s.address_mode_v == .Repeat {v_i = 1}
 	// filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
 	f_i := 0
-	if s.mag_filter == .Linear {
-		f_i = 1
-	}
-
+	if s.mag_filter == .Linear {f_i = 1}
 	return u_i * 4 + v_i * 2 + f_i
 }
 
@@ -138,12 +128,13 @@ main :: proc() {
 		}
 		g_state.device = device
 		width, height := os_get_framebuffer_size()
+		low_width, low_height := low_res_size(width, height)
 		g_state.config = wgpu.SurfaceConfiguration {
 			device      = g_state.device,
 			usage       = {.RenderAttachment},
 			format      = .BGRA8Unorm,
-			width       = width,
-			height      = height,
+			width       = low_width,
+			height      = low_height,
 			presentMode = .Fifo,
 			alphaMode   = .Opaque,
 		}
@@ -265,9 +256,14 @@ main :: proc() {
 	}
 }
 
+low_res_size :: proc(w, h: u32) -> (u32, u32) {
+	return w / 64 | 0, h / 64 | 0
+}
+
 resize :: proc "c" () {
 	context = g_state.ctx
-	g_state.config.width, g_state.config.height = os_get_framebuffer_size()
+	w, h := os_get_framebuffer_size()
+	g_state.config.width, g_state.config.height = low_res_size(w, h)
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
