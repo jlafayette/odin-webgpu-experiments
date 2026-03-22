@@ -1,6 +1,6 @@
 package game
 
-import "core:fmt"
+// import "core:fmt"
 import "core:math"
 
 RgbaU8 :: [4]u8
@@ -10,27 +10,15 @@ Mipmap :: struct {
 }
 
 @(private = "file")
-get_pixel :: proc(m: Mipmap, x, y: int) -> Maybe(RgbaU8) {
-	// if x < 0 || x >= m.dim.x || y < 0 || y >= m.dim.y {
-	// 	return nil
-	// }
+get_pixel :: proc(m: Mipmap, x, y: int) -> RgbaU8 {
 	i := (y * m.dim.x) + x
-	if i < 0 || i >= len(m.data) {
-		return nil
-	}
+	assert(i >= 0 && i < len(m.data))
 
 	return m.data[i]
 }
 
 @(private = "file")
-array_lerp :: proc(m1, m2: Maybe(RgbaU8), t: f32) -> Maybe(RgbaU8) {
-	if m1 == nil {
-		return m2
-	} else if m2 == nil {
-		return m1
-	}
-	c1 := m1.? or_else {5, 50, 155, 255}
-	c2 := m2.? or_else {1, 10, 100, 255}
+array_lerp :: proc(c1, c2: RgbaU8, t: f32) -> RgbaU8 {
 
 	r := math.lerp(f32(c1.r), f32(c2.r), t)
 	g := math.lerp(f32(c1.g), f32(c2.g), t)
@@ -45,10 +33,10 @@ array_lerp :: proc(m1, m2: Maybe(RgbaU8), t: f32) -> Maybe(RgbaU8) {
 }
 
 @(private = "file")
-bilinear_filter :: proc(tl, tr, bl, br: Maybe(RgbaU8), t1, t2: f32) -> RgbaU8 {
+bilinear_filter :: proc(tl, tr, bl, br: RgbaU8, t1, t2: f32) -> RgbaU8 {
 	t := array_lerp(tl, tr, t1)
 	b := array_lerp(bl, br, t1)
-	return array_lerp(t, b, t2).? or_else {2, 20, 200, 255}
+	return array_lerp(t, b, t2)
 }
 
 @(private = "file")

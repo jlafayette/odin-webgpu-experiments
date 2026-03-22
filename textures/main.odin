@@ -385,7 +385,7 @@ draw_scene :: proc() {
 		scale_x: f32 = (4 / f32(g_state.config.width)) * g_state.settings.scale
 		scale_y: f32 = (4 / f32(g_state.config.height)) * g_state.settings.scale
 		g_state.uniform_values.scale = {scale_x, scale_y}
-		offset_x := cast(f32)math.sin(g_state.time * 0.25) * 0.8 - (scale_x * 0.5)
+		offset_x := cast(f32)math.sin(g_state.time * 1.5) * 0.8 - (scale_x * 0.5)
 		offset_y: f32 = -0.8
 		g_state.uniform_values.offset = {offset_x, offset_y}
 		wgpu.QueueWriteBuffer(
