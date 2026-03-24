@@ -1,7 +1,13 @@
 package game
 
 // import "core:fmt"
+import "core:image"
+import "core:image/png"
 import "core:math"
+
+
+TEXTURE_1_DATA :: #load("texture_1.png")
+
 
 RgbaU8 :: [4]u8
 Mipmap :: struct {
@@ -106,5 +112,89 @@ generate_mips :: proc(src: Mipmap) -> [dynamic]Mipmap {
 		append(&mips, mip)
 	}
 	return mips
+}
+
+@(private = "file")
+create_pixels :: proc(w, h: int, c1, c2: [4]u8) -> Mipmap {
+	pixels := make_slice([][4]u8, w * h)
+	for y := 0; y < h; y += 1 {
+		for x := 0; x < w; x += 1 {
+			lf: bool = x < w / 2
+			tp: bool = y < h / 2
+			c: [4]u8 = c1
+			if (lf && !tp) || (!lf && tp) {
+				c = c2
+			}
+			pixels[y * w + x] = c
+		}
+	}
+	return {data = pixels, dim = {w, h}}
+}
+
+create_mips1 :: proc() -> [dynamic]Mipmap {
+	mips: [dynamic]Mipmap
+
+	{
+		c1: [4]u8 : {109, 70, 188, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(64, 64, c1, c2))
+	}
+	{
+		c1: [4]u8 : {20, 200, 40, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(32, 32, c1, c2))
+	}
+	{
+		c1: [4]u8 : {200, 20, 30, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(16, 16, c1, c2))
+	}
+	{
+		c1: [4]u8 : {200, 20, 188, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(8, 8, c1, c2))
+	}
+	{
+		c1: [4]u8 : {20, 20, 200, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(4, 4, c1, c2))
+	}
+	{
+		c1: [4]u8 : {20, 200, 200, 255}
+		c2: [4]u8 : {200, 200, 200, 255}
+		append(&mips, create_pixels(2, 2, c1, c2))
+	}
+	{
+		c1: [4]u8 : {109, 70, 120, 255}
+		pixels := make_slice([][4]u8, 1)
+		pixels[0] = c1
+		append(&mips, Mipmap{data = pixels, dim = {1, 1}})
+	}
+	return mips
+}
+
+create_mips2 :: proc() -> [dynamic]Mipmap {
+	img, err := png.load_from_bytes(TEXTURE_1_DATA)
+	assert(err == nil)
+	defer image.destroy(img)
+	assert(img.channels == 3)
+	assert(img.depth == 8)
+	w := img.width
+	h := img.height
+	buf: []u8 = img.pixels.buf[:]
+
+	// tranlate from 3 to 4 channels to match mipmap data
+	pixels := make_slice([][4]u8, w * h)
+	for y in 0 ..< h {
+		for x in 0 ..< w {
+			i := (y * w) + x
+			r := buf[(i * 3) + 0]
+			g := buf[(i * 3) + 1]
+			b := buf[(i * 3) + 2]
+			pixels[i] = {r, g, b, 255}
+		}
+	}
+
+	return generate_mips(Mipmap{data = pixels, dim = {w, h}})
 }
 

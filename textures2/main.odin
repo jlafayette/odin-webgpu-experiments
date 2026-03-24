@@ -2,8 +2,8 @@ package game
 
 import "base:runtime"
 import "core:fmt"
-import "core:math"
 import "vendor:wgpu"
+
 
 SHADER :: #load("shader.wgsl")
 
@@ -51,8 +51,8 @@ State :: struct {
 	module:            wgpu.ShaderModule,
 	pipeline:          wgpu.RenderPipeline,
 	pipeline_layout:   wgpu.PipelineLayout,
-	texture:           wgpu.Texture,
-	texture_view:      wgpu.TextureView,
+	textures:          [2]wgpu.Texture,
+	texture_views:     [2]wgpu.TextureView,
 	samplers:          [16]wgpu.Sampler,
 	bind_groups:       [16]wgpu.BindGroup,
 	bind_group_layout: wgpu.BindGroupLayout,
@@ -73,8 +73,12 @@ finish :: proc() {
 	wgpu.AdapterRelease(g_state.adapter)
 	wgpu.SurfaceRelease(g_state.surface)
 	wgpu.InstanceRelease(g_state.instance)
-	wgpu.TextureRelease(g_state.texture)
-	wgpu.TextureViewRelease(g_state.texture_view)
+	for t in g_state.textures {
+		wgpu.TextureRelease(t)
+	}
+	for tv in g_state.texture_views {
+		wgpu.TextureViewRelease(tv)
+	}
 	for v, i in g_state.samplers {
 		wgpu.SamplerRelease(v)
 	}
@@ -85,47 +89,41 @@ finish :: proc() {
 	wgpu.BufferRelease(g_state.uniform_buffer)
 }
 
-TEXTURE_DIM: [2]int : {5, 7}
-TEXTURE_SIZE :: TEXTURE_DIM.x * TEXTURE_DIM.y
-R: [4]u8 : {255, 0, 0, 255} // red
-Y: [4]u8 : {255, 255, 0, 255} // yellow
-B: [4]u8 : {0, 0, 255, 255} // blue
-TEXTURE_DATA: [TEXTURE_DIM.y * TEXTURE_DIM.x][4]u8 = {
-	R,
-	R,
-	R,
-	R,
-	R, //
-	R,
-	Y,
-	R,
-	R,
-	R, //
-	R,
-	Y,
-	R,
-	R,
-	R, //
-	R,
-	Y,
-	Y,
-	R,
-	R, //
-	R,
-	Y,
-	R,
-	R,
-	R, //
-	R,
-	Y,
-	Y,
-	Y,
-	R, //
-	B,
-	R,
-	R,
-	R,
-	R, //
+create_texture_with_mips :: proc(
+	device: wgpu.Device,
+	queue: wgpu.Queue,
+	mips: []Mipmap,
+	label: string,
+) -> wgpu.Texture {
+	t := wgpu.DeviceCreateTexture(
+		device,
+		&{
+			label = label,
+			usage = {.TextureBinding, .CopyDst},
+			size = {
+				width = u32(mips[0].dim.x),
+				height = u32(mips[0].dim.y),
+				depthOrArrayLayers = 1,
+			},
+			format = .RGBA8Unorm,
+			mipLevelCount = u32(len(mips)),
+			sampleCount = 1,
+		},
+	)
+	for mip, mip_level in mips {
+		data_size: uint = size_of(mip.data[0]) * len(mip.data)
+		bytes_per_row := u32(size_of(mip.data[0]) * mip.dim.x)
+		wgpu.QueueWriteTexture(
+			queue = queue,
+			destination = &{texture = t, mipLevel = u32(mip_level)},
+			data = raw_data(mip.data[:]),
+			dataSize = data_size,
+			dataLayout = &{bytesPerRow = bytes_per_row, rowsPerImage = u32(mip.dim.y)},
+			writeSize = &{width = u32(mip.dim.x), height = u32(mip.dim.y), depthOrArrayLayers = 1},
+		)
+	}
+
+	return t
 }
 
 main :: proc() {
@@ -177,13 +175,12 @@ main :: proc() {
 		}
 		g_state.device = device
 		width, height := os_get_framebuffer_size()
-		low_width, low_height := low_res_size(width, height)
 		g_state.config = wgpu.SurfaceConfiguration {
 			device      = g_state.device,
 			usage       = {.RenderAttachment},
 			format      = .BGRA8Unorm,
-			width       = low_width,
-			height      = low_height,
+			width       = width,
+			height      = height,
 			presentMode = .Fifo,
 			alphaMode   = .Opaque,
 		}
@@ -194,47 +191,21 @@ main :: proc() {
 			g_state.device,
 			&{nextInChain = &wgpu.ShaderSourceWGSL{sType = .ShaderSourceWGSL, code = shader}},
 		)
-		first_mip: Mipmap = {
-			data = TEXTURE_DATA[:],
-			dim  = {TEXTURE_DIM.x, TEXTURE_DIM.y},
-		}
-		mips := generate_mips(first_mip)
-		g_state.texture = wgpu.DeviceCreateTexture(
+		g_state.textures[0] = create_texture_with_mips(
 			g_state.device,
-			&{
-				label = "texture descriptor",
-				usage = {.TextureBinding, .CopyDst},
-				size = {
-					width = u32(mips[0].dim.x),
-					height = u32(mips[0].dim.y),
-					depthOrArrayLayers = 1,
-				},
-				format = .RGBA8Unorm,
-				sampleCount = 1,
-				mipLevelCount = u32(len(mips)),
-			},
+			g_state.queue,
+			create_mips1()[:],
+			"blended",
 		)
-		g_state.texture_view = wgpu.TextureCreateView(g_state.texture, nil)
-		for mip, mip_level in mips {
-			data_size: uint = size_of(mip.data[0]) * len(mip.data)
-			bytes_per_row := u32(size_of(mip.data[0]) * mip.dim.x)
-			fmt.println("mip", mip)
-			fmt.println("mipLevel", mip_level)
-			fmt.println("- dataSize:", data_size)
-			fmt.println("- bytesPerRow:", bytes_per_row)
-			wgpu.QueueWriteTexture(
-				queue = g_state.queue,
-				destination = &{texture = g_state.texture, mipLevel = u32(mip_level)},
-				data = raw_data(mip.data[:]),
-				dataSize = data_size,
-				dataLayout = &{bytesPerRow = bytes_per_row, rowsPerImage = u32(mip.dim.y)},
-				writeSize = &{
-					width = u32(mip.dim.x),
-					height = u32(mip.dim.y),
-					depthOrArrayLayers = 1,
-				},
-			)
-		}
+		g_state.textures[1] = create_texture_with_mips(
+			g_state.device,
+			g_state.queue,
+			create_mips2()[:],
+			"checker",
+		)
+
+		g_state.texture_views[0] = wgpu.TextureCreateView(g_state.textures[0], nil)
+		g_state.texture_views[1] = wgpu.TextureCreateView(g_state.textures[1], nil)
 
 		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
 			g_state.device,
@@ -299,7 +270,7 @@ main :: proc() {
 								entries = raw_data(
 									[]wgpu.BindGroupEntry {
 										{binding = 0, sampler = g_state.samplers[i]},
-										{binding = 1, textureView = g_state.texture_view},
+										{binding = 1, textureView = g_state.texture_views[1]},
 										{
 											binding = 2,
 											buffer = g_state.uniform_buffer,
@@ -342,14 +313,9 @@ main :: proc() {
 	}
 }
 
-low_res_size :: proc(w, h: u32) -> (u32, u32) {
-	return w / 64 | 0, h / 64 | 0
-}
-
 resize :: proc "c" () {
 	context = g_state.ctx
-	w, h := os_get_framebuffer_size()
-	g_state.config.width, g_state.config.height = low_res_size(w, h)
+	g_state.config.width, g_state.config.height = os_get_framebuffer_size()
 	wgpu.SurfaceConfigure(g_state.surface, &g_state.config)
 	// fmt.println("resize", g_state.config.width, g_state.config.height)
 }
@@ -382,11 +348,9 @@ draw_scene :: proc() {
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
 	{
-		scale_x: f32 = (4 / f32(g_state.config.width)) * g_state.settings.scale
-		scale_y: f32 = (4 / f32(g_state.config.height)) * g_state.settings.scale
-		g_state.uniform_values.scale = {scale_x, scale_y}
-		offset_x := cast(f32)math.sin(g_state.time * 1.5) * 0.8 - (scale_x * 0.5)
-		offset_y: f32 = -0.8
+		g_state.uniform_values.scale = {1, 1}
+		offset_x: f32 = -0.5
+		offset_y: f32 = -0.5
 		g_state.uniform_values.offset = {offset_x, offset_y}
 		wgpu.QueueWriteBuffer(
 			g_state.queue,
