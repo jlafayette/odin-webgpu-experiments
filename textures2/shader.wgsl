@@ -4,8 +4,7 @@ struct VertShaderOutput {
 };
 
 struct Uniforms {
-    scale: vec2f,
-    offset: vec2f,
+    matrix: mat4x4f,
 };
 
 @group(0) @binding(2) var<uniform> uni: Uniforms;
@@ -30,8 +29,7 @@ struct Uniforms {
     );
     var vsOutput: VertShaderOutput;
     let xy = pos[vertexIndex];
-    vsOutput.position = vec4f(xy * uni.scale + uni.offset, 0.0, 1.0);
-    // vsOutput.position = vec4f(xy, 0.0, 1.0);
+    vsOutput.position = uni.matrix * vec4f(xy, 0.0, 1.0);
     vsOutput.texcoord = xy;
     return vsOutput;
 }

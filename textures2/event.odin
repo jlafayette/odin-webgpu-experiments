@@ -4,19 +4,9 @@ import "core:fmt"
 import "core:math"
 import "vendor:wgpu"
 
-EventToggleTextureAddressModeU :: struct {}
-EventToggleTextureAddressModeV :: struct {}
-EventToggleTextureMagFilterMode :: struct {}
-EventToggleTextureMinFilterMode :: struct {}
-EventChangeScale :: struct {
-	value: f32,
-}
+EventToggleTexture :: struct {}
 Event :: union {
-	EventToggleTextureAddressModeU,
-	EventToggleTextureAddressModeV,
-	EventToggleTextureMagFilterMode,
-	EventToggleTextureMinFilterMode,
-	EventChangeScale,
+	EventToggleTexture,
 }
 
 event_q: [dynamic]Event
@@ -36,46 +26,10 @@ event_add :: proc(e: Event) {
 handle_events :: proc(settings: ^Settings) {
 	for event in event_q {
 		switch e in event {
-		case EventToggleTextureAddressModeU:
+		case EventToggleTexture:
 			{
-				if settings.address_mode_u == .Repeat {
-					settings.address_mode_u = .ClampToEdge
-				} else {
-					settings.address_mode_u = .Repeat
-				}
-				fmt.println("address_mode_u:", settings.address_mode_u)
-			}
-		case EventToggleTextureAddressModeV:
-			{
-				if settings.address_mode_v == .Repeat {
-					settings.address_mode_v = .ClampToEdge
-				} else {
-					settings.address_mode_v = .Repeat
-				}
-				fmt.println("address_mode_v:", settings.address_mode_v)
-			}
-		case EventToggleTextureMagFilterMode:
-			{
-				if settings.mag_filter == .Nearest {
-					settings.mag_filter = .Linear
-				} else {
-					settings.mag_filter = .Nearest
-				}
-				fmt.println("mag_filter:", settings.mag_filter)
-			}
-		case EventToggleTextureMinFilterMode:
-			{
-				if settings.min_filter == .Nearest {
-					settings.min_filter = .Linear
-				} else {
-					settings.min_filter = .Nearest
-				}
-				fmt.println("min_filter:", settings.min_filter)
-			}
-		case EventChangeScale:
-			{
-				v := e.value + settings.scale
-				settings.scale = math.clamp(v, 0.5, 6)
+				settings.texture_index = (settings.texture_index + 1) % settings.n_textures
+				fmt.println("texture index:", settings.texture_index)
 			}
 		}
 	}

@@ -2,6 +2,8 @@ package game
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
+import glm "core:math/linalg/glsl"
 import "vendor:wgpu"
 
 
@@ -9,24 +11,8 @@ SHADER :: #load("shader.wgsl")
 
 
 Settings :: struct {
-	address_mode_u: wgpu.AddressMode,
-	address_mode_v: wgpu.AddressMode,
-	mag_filter:     wgpu.FilterMode,
-	min_filter:     wgpu.FilterMode,
-	scale:          f32,
-}
-settings_to_index :: proc(s: Settings) -> int {
-	// address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
-	u_i := 0
-	if s.address_mode_u == .Repeat {u_i = 1}
-	v_i := 0
-	if s.address_mode_v == .Repeat {v_i = 1}
-	// filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
-	mag_i := 0
-	if s.mag_filter == .Linear {mag_i = 1}
-	min_i := 0
-	if s.min_filter == .Linear {min_i = 1}
-	return u_i * 8 + v_i * 4 + mag_i * 2 + min_i
+	n_textures:    int,
+	texture_index: int,
 }
 
 // No padding necessary
@@ -34,8 +20,15 @@ settings_to_index :: proc(s: Settings) -> int {
 // https://webgpufundamentals.org/webgpu/lessons/resources/wgsl-offset-computer.html
 //
 Uniforms :: struct {
-	scale:  [2]f32,
-	offset: [2]f32,
+	mat: glm.mat4,
+}
+
+ObjectInfo :: struct {
+	sampler:        wgpu.Sampler,
+	uniform_buffer: wgpu.Buffer,
+	uniform_values: []Uniforms,
+	bind_groups:    [2]wgpu.BindGroup,
+	mat:            glm.mat4,
 }
 
 State :: struct {
@@ -51,14 +44,13 @@ State :: struct {
 	module:            wgpu.ShaderModule,
 	pipeline:          wgpu.RenderPipeline,
 	pipeline_layout:   wgpu.PipelineLayout,
+	//
+	object_infos:      []ObjectInfo,
+	//
 	textures:          [2]wgpu.Texture,
 	texture_views:     [2]wgpu.TextureView,
-	samplers:          [16]wgpu.Sampler,
-	bind_groups:       [16]wgpu.BindGroup,
-	bind_group_layout: wgpu.BindGroupLayout,
 	//
-	uniform_buffer:    wgpu.Buffer,
-	uniform_values:    Uniforms,
+	bind_group_layout: wgpu.BindGroupLayout,
 	//
 	time:              f64,
 }
@@ -79,14 +71,19 @@ finish :: proc() {
 	for tv in g_state.texture_views {
 		wgpu.TextureViewRelease(tv)
 	}
-	for v, i in g_state.samplers {
-		wgpu.SamplerRelease(v)
+	for obj in g_state.object_infos {
+		wgpu.SamplerRelease(obj.sampler)
+		for v in obj.bind_groups {
+			wgpu.BindGroupRelease(v)
+		}
+		for v in obj.bind_groups {
+			wgpu.BindGroupRelease(v)
+		}
+		wgpu.BufferRelease(obj.uniform_buffer)
+		delete(obj.uniform_values)
 	}
-	for v in g_state.bind_groups {
-		wgpu.BindGroupRelease(v)
-	}
+	delete(g_state.object_infos)
 	wgpu.BindGroupLayoutRelease(g_state.bind_group_layout)
-	wgpu.BufferRelease(g_state.uniform_buffer)
 }
 
 create_texture_with_mips :: proc(
@@ -130,11 +127,8 @@ main :: proc() {
 	g_state.ctx = context
 
 	os_init()
-	g_state.settings.address_mode_u = .ClampToEdge
-	g_state.settings.address_mode_v = .ClampToEdge
-	g_state.settings.mag_filter = .Nearest
-	g_state.settings.min_filter = .Nearest
-	g_state.settings.scale = 1
+	g_state.settings.texture_index = 0
+	g_state.settings.n_textures = len(g_state.textures)
 
 	g_state.instance = wgpu.CreateInstance(nil)
 	if g_state.instance == nil {
@@ -207,11 +201,6 @@ main :: proc() {
 		g_state.texture_views[0] = wgpu.TextureCreateView(g_state.textures[0], nil)
 		g_state.texture_views[1] = wgpu.TextureCreateView(g_state.textures[1], nil)
 
-		g_state.uniform_buffer = wgpu.DeviceCreateBuffer(
-			g_state.device,
-			&{label = "uniforms buffer", usage = {.Uniform, .CopyDst}, size = size_of(Uniforms)},
-		)
-
 		g_state.bind_group_layout = wgpu.DeviceCreateBindGroupLayout(
 			g_state.device,
 			&{
@@ -238,50 +227,60 @@ main :: proc() {
 			},
 		)
 
-		address_modes: [2]wgpu.AddressMode = {.ClampToEdge, .Repeat}
-		filters: [2]wgpu.FilterMode = {.Nearest, .Linear}
-		for address_mode_u, iu in address_modes {
-			for address_mode_v, iv in address_modes {
-				for mag_filter, i_mag in filters {
-					for min_filter, i_min in filters {
 
-						i := iu * 8 + iv * 4 + i_mag * 2 + i_min
-						g_state.samplers[i] = wgpu.DeviceCreateSampler(
-							g_state.device,
-							&{
-								addressModeU = address_mode_u,
-								addressModeV = address_mode_v,
-								addressModeW = .ClampToEdge,
-								magFilter = mag_filter,
-								minFilter = min_filter,
-								mipmapFilter = .Nearest,
-								lodMinClamp = 0,
-								lodMaxClamp = 32,
-								compare = nil,
-								maxAnisotropy = 1,
+		g_state.object_infos = make_slice([]ObjectInfo, 8)
+		for &obj, i in g_state.object_infos {
+			mag_filter: wgpu.FilterMode = .Nearest
+			if (i & 1) > 0 {mag_filter = .Linear}
+			min_filter: wgpu.FilterMode = .Nearest
+			if (i & 2) > 0 {min_filter = .Linear}
+			mipmap_filter: wgpu.MipmapFilterMode = .Linear
+			if (i & 4) > 0 {mipmap_filter = .Linear}
+			obj.sampler = wgpu.DeviceCreateSampler(
+				g_state.device,
+				&{
+					addressModeU = .Repeat,
+					addressModeV = .Repeat,
+					addressModeW = .ClampToEdge,
+					magFilter = mag_filter,
+					minFilter = min_filter,
+					mipmapFilter = mipmap_filter,
+					lodMinClamp = 0,
+					lodMaxClamp = 32,
+					compare = nil,
+					maxAnisotropy = 1,
+				},
+			)
+			obj.uniform_buffer = wgpu.DeviceCreateBuffer(
+				g_state.device,
+				&{
+					label = "uniforms for quad",
+					size = size_of(Uniforms),
+					usage = {.Uniform, .CopyDst},
+				},
+			)
+			assert(len(obj.bind_groups) == len(g_state.textures))
+			assert(len(g_state.textures) == len(g_state.texture_views))
+			for tex, i in g_state.textures {
+				obj.bind_groups[i] = wgpu.DeviceCreateBindGroup(
+					g_state.device,
+					&{
+						label = "textures bind group",
+						layout = g_state.bind_group_layout,
+						entryCount = 3,
+						entries = raw_data(
+							[]wgpu.BindGroupEntry {
+								{binding = 0, sampler = obj.sampler},
+								{binding = 1, textureView = g_state.texture_views[i]},
+								{
+									binding = 2,
+									buffer = obj.uniform_buffer,
+									size = size_of(Uniforms),
+								},
 							},
-						)
-						g_state.bind_groups[i] = wgpu.DeviceCreateBindGroup(
-							g_state.device,
-							&{
-								label = "textures bind group",
-								layout = g_state.bind_group_layout,
-								entryCount = 3,
-								entries = raw_data(
-									[]wgpu.BindGroupEntry {
-										{binding = 0, sampler = g_state.samplers[i]},
-										{binding = 1, textureView = g_state.texture_views[1]},
-										{
-											binding = 2,
-											buffer = g_state.uniform_buffer,
-											size = size_of(Uniforms),
-										},
-									},
-								),
-							},
-						)
-					}
-				}
+						),
+					},
+				)
 			}
 		}
 
@@ -347,19 +346,33 @@ draw_scene :: proc() {
 	command_encoder := wgpu.DeviceCreateCommandEncoder(state.device, &{label = "encoder"})
 	defer wgpu.CommandEncoderRelease(command_encoder)
 
-	{
-		g_state.uniform_values.scale = {1, 1}
-		offset_x: f32 = -0.5
-		offset_y: f32 = -0.5
-		g_state.uniform_values.offset = {offset_x, offset_y}
-		wgpu.QueueWriteBuffer(
-			g_state.queue,
-			g_state.uniform_buffer,
-			0,
-			&g_state.uniform_values,
-			size_of(Uniforms),
-		)
-	}
+	fov: f32 = 60 * math.PI / 180 // 60 degrees in radians
+	aspect: f32 = f32(g_state.config.width) / f32(g_state.config.height)
+	z_near :: 1
+	z_far :: 2000
+
+	proj_matrix := glm.mat4Perspective(fov, aspect, z_near, z_far)
+	camera_pos: [3]f32 = {0, 0, 2}
+	up: [3]f32 = {0, 1, 0}
+	target: [3]f32 = {0, 0, 0}
+	camera_matrix := glm.mat4LookAt(camera_pos, target, up)
+
+	view_matrix := glm.inverse_mat4(camera_matrix)
+	view_proj_matrix := proj_matrix * view_matrix
+
+	// {
+	// 	g_state.uniform_values.scale = {1, 1}
+	// 	offset_x: f32 = -0.5
+	// 	offset_y: f32 = -0.5
+	// 	g_state.uniform_values.offset = {offset_x, offset_y}
+	// 	wgpu.QueueWriteBuffer(
+	// 		g_state.queue,
+	// 		g_state.uniform_buffer,
+	// 		0,
+	// 		&g_state.uniform_values,
+	// 		size_of(Uniforms),
+	// 	)
+	// }
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,
@@ -377,18 +390,37 @@ draw_scene :: proc() {
 	)
 
 	wgpu.RenderPassEncoderSetPipeline(render_pass_encoder, state.pipeline)
-	wgpu.RenderPassEncoderSetBindGroup(
-		render_pass_encoder,
-		0,
-		g_state.bind_groups[settings_to_index(g_state.settings)],
-	)
-	wgpu.RenderPassEncoderDraw(
-		render_pass_encoder,
-		vertexCount = 6,
-		instanceCount = 1,
-		firstVertex = 0,
-		firstInstance = 0,
-	)
+
+	for obj, i in g_state.object_infos {
+
+		x_spacing :: 1.2
+		y_spacing :: 0.7
+		z_depth :: 50
+		x: f32 = f32(i % 4) - 1.5
+		y: f32 = -1
+		if i < 4 {y = 1}
+
+		mat := view_proj_matrix
+		mat *= glm.mat4Translate({x * x_spacing, y * y_spacing, -z_depth * 0.5})
+		mat *= glm.mat4Rotate({1, 0, 0}, 0.5 * math.PI)
+		mat *= glm.mat4Scale({1, z_depth * 2, 1})
+		mat *= glm.mat4Translate({-0.5, -0.5, 0})
+
+		wgpu.QueueWriteBuffer(g_state.queue, obj.uniform_buffer, 0, &mat, size_of(glm.mat4))
+
+		wgpu.RenderPassEncoderSetBindGroup(
+			render_pass_encoder,
+			0,
+			obj.bind_groups[g_state.settings.texture_index],
+		)
+		wgpu.RenderPassEncoderDraw(
+			render_pass_encoder,
+			vertexCount = 6,
+			instanceCount = 1,
+			firstVertex = 0,
+			firstInstance = 0,
+		)
+	}
 
 	wgpu.RenderPassEncoderEnd(render_pass_encoder)
 	wgpu.RenderPassEncoderRelease(render_pass_encoder)

@@ -48,23 +48,10 @@ size_callback :: proc(e: js.Event) {
 
 @(private = "file")
 on_key_down :: proc(e: js.Event) {
-	if e.key.code == "KeyQ" {
-		event_add(EventChangeScale{-0.25})
-	} else if e.key.code == "KeyW" {
-		event_add(EventChangeScale{0.25})
-	}
 	if e.key.repeat {
 		return
 	}
-	if e.key.code == "KeyA" {
-		event_add(EventToggleTextureAddressModeU{})
-	} else if e.key.code == "KeyS" {
-		event_add(EventToggleTextureAddressModeV{})
-	} else if e.key.code == "KeyD" {
-		event_add(EventToggleTextureMagFilterMode{})
-	} else if e.key.code == "KeyF" {
-		event_add(EventToggleTextureMinFilterMode{})
-	}
+	event_add(EventToggleTexture{})
 }
 
 @(private = "file", fini)
