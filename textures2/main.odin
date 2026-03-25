@@ -234,14 +234,14 @@ main :: proc() {
 			if (i & 1) > 0 {mag_filter = .Linear}
 			min_filter: wgpu.FilterMode = .Nearest
 			if (i & 2) > 0 {min_filter = .Linear}
-			mipmap_filter: wgpu.MipmapFilterMode = .Linear
+			mipmap_filter: wgpu.MipmapFilterMode = .Nearest
 			if (i & 4) > 0 {mipmap_filter = .Linear}
 			obj.sampler = wgpu.DeviceCreateSampler(
 				g_state.device,
 				&{
 					addressModeU = .Repeat,
 					addressModeV = .Repeat,
-					addressModeW = .ClampToEdge,
+					addressModeW = .Repeat,
 					magFilter = mag_filter,
 					minFilter = min_filter,
 					mipmapFilter = mipmap_filter,
@@ -348,7 +348,7 @@ draw_scene :: proc() {
 
 	fov: f32 = 60 * math.PI / 180 // 60 degrees in radians
 	aspect: f32 = f32(g_state.config.width) / f32(g_state.config.height)
-	z_near :: 1
+	z_near :: 0.1
 	z_far :: 2000
 
 	proj_matrix := glm.mat4Perspective(fov, aspect, z_near, z_far)
@@ -359,20 +359,6 @@ draw_scene :: proc() {
 
 	view_matrix := glm.inverse_mat4(camera_matrix)
 	view_proj_matrix := proj_matrix * view_matrix
-
-	// {
-	// 	g_state.uniform_values.scale = {1, 1}
-	// 	offset_x: f32 = -0.5
-	// 	offset_y: f32 = -0.5
-	// 	g_state.uniform_values.offset = {offset_x, offset_y}
-	// 	wgpu.QueueWriteBuffer(
-	// 		g_state.queue,
-	// 		g_state.uniform_buffer,
-	// 		0,
-	// 		&g_state.uniform_values,
-	// 		size_of(Uniforms),
-	// 	)
-	// }
 
 	render_pass_encoder := wgpu.CommandEncoderBeginRenderPass(
 		command_encoder,

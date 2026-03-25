@@ -20,7 +20,7 @@ step :: proc(dt: f32) -> (keep_going: bool) {
 
 os_init :: proc() {
 	ok := js.add_window_event_listener(.Resize, nil, size_callback); assert(ok)
-	ok = js.add_window_event_listener(.Key_Down, nil, on_key_down); assert(ok)
+	ok = js.add_window_event_listener(.Pointer_Down, nil, on_pointer_down); assert(ok)
 }
 
 os_get_framebuffer_size :: proc() -> (width, height: u32) {
@@ -47,10 +47,7 @@ size_callback :: proc(e: js.Event) {
 }
 
 @(private = "file")
-on_key_down :: proc(e: js.Event) {
-	if e.key.repeat {
-		return
-	}
+on_pointer_down :: proc(e: js.Event) {
 	event_add(EventToggleTexture{})
 }
 

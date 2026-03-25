@@ -22,15 +22,10 @@ struct Uniforms {
 		vec2f(1.0,  0.0), // right, center
 		vec2f(1.0,  1.0), // right, top
     );
-    var color = array<vec4f, 3>(
-        vec4f(1, 0, 0, 1),
-        vec4f(0, 1, 0, 1),
-        vec4f(0, 0, 1, 1),
-    );
     var vsOutput: VertShaderOutput;
     let xy = pos[vertexIndex];
     vsOutput.position = uni.matrix * vec4f(xy, 0.0, 1.0);
-    vsOutput.texcoord = xy;
+    vsOutput.texcoord = xy * vec2f(1, 50);
     return vsOutput;
 }
 
